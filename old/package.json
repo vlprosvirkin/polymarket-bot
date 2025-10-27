@@ -1,0 +1,39 @@
+{
+  "name": "polymarket-bot",
+  "version": "1.0.0",
+  "description": "TypeScript bot for interacting with Polymarket contracts",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "examples": "ts-node src/examples.ts",
+    "real-test": "ts-node src/real-test.ts",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "polymarket",
+    "ethereum",
+    "defi",
+    "trading",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@polymarket/clob-client": "^4.22.8",
+    "@polymarket/sdk": "^6.0.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
