@@ -108,7 +108,7 @@ src/
 ```
 
 ### Сервисы
-- **PolymarketDataService** - получает рынки, orderbook, рассчитывает ликвидность
+- **PolymarketDataService** - получает рынки, orderbook, рассчитывает ликвидность ([подробнее](api-service.md))
 - **EndgameStrategy** - фильтрует рынки, анализирует хеджи, размещает ордера
 
 ### Важные адреса

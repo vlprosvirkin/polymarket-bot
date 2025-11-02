@@ -174,3 +174,32 @@ export interface OrderOptions {
     tickSize: string;
     negRisk: boolean;
 }
+
+/**
+ * Midpoint response (средняя цена)
+ */
+export interface MidpointResponse {
+    mid: string;        // Средняя цена между best bid и best ask
+    price?: string;     // Алиас для mid
+}
+
+/**
+ * Spread response (спред)
+ */
+export interface SpreadResponse {
+    spread: string;     // Разница между best ask и best bid
+}
+
+/**
+ * Price response (цена для стороны)
+ */
+export interface PriceResponse {
+    price: string;      // Цена для указанной стороны (BUY/SELL)
+}
+
+/**
+ * Tick size response
+ */
+export interface TickSizeResponse {
+    minimum_tick_size: number;
+}
