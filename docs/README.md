@@ -43,10 +43,13 @@ npm run trade
 - `npm run trade` - тестовая торговля
 
 ### Тесты
+- `npm run test:api` - проверка подключения к API
 - `npm run test:endgame` - анализ возможностей Endgame
 - `npm run test:liquidity` - проверка ликвидности рынков
-- `npm run test:volume` - структура данных API
-- `npm run test:api` - подключение к API
+- `npm run test:volume` - отладка структуры API данных
+- `npm run test:high` - high confidence стратегия (опционально)
+
+Подробнее: [docs/tests.md](tests.md)
 
 ### Утилиты
 - `npm run check-balance` - проверка MATIC и USDC.e
