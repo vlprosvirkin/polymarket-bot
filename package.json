@@ -32,6 +32,7 @@
     "cipher-base": "^1.0.7",
     "combined-stream": "^1.0.8",
     "core-util-is": "^1.0.3",
+    "cors": "^2.8.5",
     "create-hash": "^1.2.0",
     "create-hmac": "^1.1.7",
     "create-require": "^1.1.1",
@@ -53,6 +54,7 @@
     "ethers": "^5.8.0",
     "ethjs-util": "^0.1.6",
     "evp_bytestokey": "^1.0.3",
+    "express": "^5.1.0",
     "follow-redirects": "^1.15.11",
     "for-each": "^0.3.5",
     "form-data": "^4.0.4",
@@ -142,6 +144,7 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "start:high": "ts-node src/bot-high-confidence.ts",
+    "start:api": "ts-node src/start-api.ts",
     "build": "tsc",
     "test:api": "ts-node src/test/test-api-connection.ts",
     "test:endgame": "ts-node src/test/test-endgame-flexible.ts",
@@ -166,5 +169,9 @@
     "url": "https://github.com/vlprosvirkin/polymarket-bot/issues"
   },
   "homepage": "https://github.com/vlprosvirkin/polymarket-bot#readme",
-  "description": ""
+  "description": "",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5"
+  }
 }

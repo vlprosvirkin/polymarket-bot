@@ -31,6 +31,7 @@ npm run trade
 **Торговля:**
 - `npm start` - запуск Endgame бота
 - `npm run test:endgame` - анализ возможностей
+- `npm run start:api` - REST API сервер (мониторинг позиций)
 
 **Утилиты:**
 - `npm run positions` - проверка текущих позиций
