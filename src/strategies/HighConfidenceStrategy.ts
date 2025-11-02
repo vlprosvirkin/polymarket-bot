@@ -9,58 +9,35 @@
 import {
     Market,
     OrderSide,
-    IStrategy,
     StrategyConfig,
     TradeSignal,
     Position
 } from '../types';
+import { BaseStrategy } from './BaseStrategy';
+import { getYesToken, getNoToken } from '../utils/market-utils';
 
-export class HighConfidenceStrategy implements IStrategy {
+export class HighConfidenceStrategy extends BaseStrategy {
     name = "High Confidence Strategy";
-    config: StrategyConfig;
 
     constructor(config: StrategyConfig) {
-        this.config = config;
+        super(config);
     }
 
     /**
      * Фильтрация: только рынки с вероятностью YES >= 80%
      */
     filterMarkets(markets: Market[]): Market[] {
-        return markets.filter(market => {
-            // Базовые проверки
-            if (!market.active || market.closed || !market.accepting_orders) {
-                return false;
-            }
+        // Используем базовую фильтрацию из BaseStrategy
+        const baseFiltered = super.filterMarkets(markets);
 
-            if (!market.tokens || market.tokens.length === 0) {
-                return false;
-            }
-
-            // Минимальный объем
-            const volume = parseFloat(market.volume || "0");
-            if (volume < this.config.minVolume) {
-                return false;
-            }
-
-            // Исключить NegRisk если настроено
-            if (this.config.excludeNegRisk && market.neg_risk) {
-                return false;
-            }
-
-            // ГЛАВНЫЙ ФИЛЬТР: вероятность YES >= 80%
-            const yesToken = market.tokens.find(t => t.outcome === "Yes");
+        // Добавляем специфичный фильтр: вероятность YES >= 80%
+        return baseFiltered.filter(market => {
+            const yesToken = getYesToken(market);
             if (!yesToken) return false;
 
-            const yesPrice = yesToken.price;
-
             // Вероятность должна быть >= 80%
-            if (yesPrice < 0.80) {
-                return false;
-            }
-
-            return true;
-        }).slice(0, this.config.maxMarkets);
+            return yesToken.price >= 0.80;
+        });
     }
 
     /**
@@ -69,8 +46,8 @@ export class HighConfidenceStrategy implements IStrategy {
     generateSignals(market: Market, currentPrice: number, position?: Position): TradeSignal[] {
         const signals: TradeSignal[] = [];
 
-        const yesToken = market.tokens.find(t => t.outcome === "Yes");
-        const noToken = market.tokens.find(t => t.outcome === "No");
+        const yesToken = getYesToken(market);
+        const noToken = getNoToken(market);
 
         if (!yesToken || !noToken) return signals;
 
@@ -120,7 +97,7 @@ export class HighConfidenceStrategy implements IStrategy {
     /**
      * Закрытие позиции при достижении профита или при падении вероятности
      */
-    shouldClosePosition(market: Market, position: Position, currentPrice: number): boolean {
+    shouldClosePosition(market: Market, _position: Position, currentPrice: number): boolean {
         // Закрываем если достигли порога профита
         if (currentPrice >= this.config.profitThreshold) {
             return true;
@@ -150,35 +127,19 @@ export class HighConfidenceStrategy implements IStrategy {
         return false;
     }
 
-    /**
-     * Расчет P&L для позиции
-     */
-    calculatePnL(position: Position, currentPrice: number): number {
-        const costBasis = position.size * position.averagePrice;
-        const currentValue = position.size * currentPrice;
-        return currentValue - costBasis;
-    }
+    // calculatePnL наследуется от BaseStrategy
 
     /**
      * Валидация сигнала
      */
     validateSignal(signal: TradeSignal): boolean {
-        // Проверка цены
-        if (signal.price < 0.01 || signal.price > 0.99) {
+        // Базовая валидация из BaseStrategy
+        if (!super.validateSignal(signal)) {
             return false;
         }
 
-        // Проверка размера
-        if (signal.size < signal.market.minimum_order_size) {
-            return false;
-        }
-
-        // Проверка что это BUY сигнал (стратегия только покупает)
-        if (signal.side !== OrderSide.BUY) {
-            return false;
-        }
-
-        return true;
+        // Дополнительная проверка: стратегия только покупает
+        return signal.side === OrderSide.BUY;
     }
 
     /**
@@ -190,7 +151,7 @@ High Confidence Strategy:
 - Находит рынки с вероятностью YES >= 80%
 - Заход: 90% в YES, 10% в NO (хедж)
 - Выход: при достижении ${(this.config.profitThreshold * 100).toFixed(0)}% или падении < 75%
-- Объем рынка: мин $${this.config.minVolume}
+- Объем рынка: не проверяется (API не возвращает volume)
 - Макс рынков: ${this.config.maxMarkets}
         `.trim();
     }

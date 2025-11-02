@@ -190,10 +190,19 @@ interface EnrichedMarket extends Market {
 
 ### Spread (спред)
 ```
-bestBid = bids[0].price
-bestAsk = asks[0].price
-spread = bestAsk - bestBid
-spreadPercent = (spread / bestBid) * 100
+bestBid = bids[0].price  // Цена покупки YES токена
+bestAsk = asks[0].price  // Цена продажи YES токена
+spread = bestAsk - bestBid  // Абсолютный спред (0.0-1.0)
+spreadPercent = spread * 100  // Спред в процентных пунктах (0-100)
+```
+
+**Важно:** Для рынков предсказаний используем абсолютный спред в процентных пунктах, а не процентное отношение к bid. 
+Это предотвращает завышение спреда при низких ценах (например, bid=0.1%, ask=99.9% → спред = 99.8 процентных пунктов, а не 99800%).
+
+**Альтернативный расчет** (относительно средней цены):
+```
+midpoint = (bestBid + bestAsk) / 2
+spreadPercent = (spread / midpoint) * 100  // Только если midpoint > 0
 ```
 
 ### Depth (глубина)

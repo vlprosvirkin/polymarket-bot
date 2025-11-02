@@ -18,7 +18,8 @@ export interface StrategyConfig {
     stopLoss?: number; // Stop loss (опционально)
 
     // Фильтрация рынков
-    minVolume: number; // Минимальный объем рынка
+    // ⚠️ minVolume удален - volume не возвращается API
+    // Для проверки ликвидности используйте PolymarketDataService + MarketFilter.filterEnrichedForTrading
     maxMarkets: number; // Максимум рынков для торговли
     excludeNegRisk: boolean; // Исключить NegRisk рынки
 

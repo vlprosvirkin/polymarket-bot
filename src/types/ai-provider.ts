@@ -1,7 +1,9 @@
+import type { UnknownJSON } from './json';
+
 export interface AIProviderResponse {
     response: string;
     textPart?: string;
-    jsonPart?: any;
+    jsonPart?: UnknownJSON;
     metadata?: {
         model?: string;
         tokensUsed?: number;

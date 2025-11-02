@@ -11,11 +11,13 @@
 import {
     Market,
     OrderSide,
-    IStrategy,
     StrategyConfig,
     TradeSignal,
     Position
 } from '../types';
+import { ClobClient } from '@polymarket/clob-client';
+import { BaseStrategy } from './BaseStrategy';
+import { getYesToken, getNoToken } from '../utils/market-utils';
 
 // Константы стратегии
 export const DEFAULT_ORDER_SIZE = 10; // $10 на сделку (по умолчанию)
@@ -26,14 +28,29 @@ export interface EndgameConfig extends StrategyConfig {
     maxProbability: number;    // Максимальная вероятность (0.99 = 99%)
     maxDaysToResolution: number; // Макс дней до разрешения (7-14)
     earlyExitThreshold: number;  // Порог раннего выхода (0.99 = 99%)
+    minLiquidity?: number;      // Минимальная ликвидность в USDC (по умолчанию 100)
 }
 
-export class EndgameStrategy implements IStrategy {
+export class EndgameStrategy extends BaseStrategy {
     name = "Endgame Sweep with Tail-Risk Hedge";
     config: EndgameConfig;
+    private client: ClobClient | null = null;
 
-    constructor(config: EndgameConfig) {
-        this.config = config;
+    constructor(config: EndgameConfig, client?: ClobClient) {
+        super(config);
+        this.config = config; // Переопределяем тип config на EndgameConfig
+        this.client = client || null;
+
+        if (this.config.minLiquidity && !this.client) {
+            console.warn('⚠️  Liquidity filter requires ClobClient. Pass it to constructor or use asyncFilterMarkets().');
+        }
+    }
+
+    /**
+     * Установить CLOB client для проверки ликвидности
+     */
+    setClient(client: ClobClient): void {
+        this.client = client;
     }
 
     /**
@@ -52,11 +69,9 @@ export class EndgameStrategy implements IStrategy {
                 return false;
             }
 
-            // Минимальный объем
-            const volume = parseFloat(market.volume || "0");
-            if (volume < this.config.minVolume) {
-                return false;
-            }
+            // Минимальный объем - НЕ используется (volume не приходит из API)
+            // Для проверки ликвидности используйте asyncFilterMarkets с minLiquidity
+            // if (this.config.minVolume > 0 && volume < this.config.minVolume) return false;
 
             // Исключить NegRisk
             if (this.config.excludeNegRisk && market.neg_risk) {
@@ -77,7 +92,7 @@ export class EndgameStrategy implements IStrategy {
             }
 
             // ГЛАВНЫЙ ФИЛЬТР: вероятность в диапазоне 95-99%
-            const yesToken = market.tokens.find(t => t.outcome === "Yes");
+            const yesToken = getYesToken(market);
             if (!yesToken) return false;
 
             const yesPrice = yesToken.price;
@@ -91,13 +106,93 @@ export class EndgameStrategy implements IStrategy {
     }
 
     /**
+     * Async версия фильтрации с проверкой ликвидности
+     * Используйте этот метод если настроен minLiquidity
+     */
+    async asyncFilterMarkets(markets: Market[]): Promise<Market[]> {
+        // Сначала базовая фильтрация
+        const basicFiltered = this.filterMarkets(markets);
+
+        // Если не настроена проверка ликвидности или нет клиента
+        if (!this.config.minLiquidity || !this.client) {
+            return basicFiltered;
+        }
+
+        const minLiquidity = this.config.minLiquidity;
+        const filtered: Market[] = [];
+
+        console.log(`🔍 Checking liquidity for ${basicFiltered.length} markets (min: $${minLiquidity})...`);
+
+        for (const market of basicFiltered) {
+            try {
+                const liquidity = await this.checkLiquidity(market);
+
+                if (liquidity >= minLiquidity) {
+                    filtered.push(market);
+                    console.log(`✅ ${market.question.substring(0, 50)}... - liquidity: $${liquidity.toFixed(0)}`);
+                } else {
+                    console.log(`❌ ${market.question.substring(0, 50)}... - low liquidity: $${liquidity.toFixed(0)}`);
+                }
+
+                // Если набрали достаточно
+                if (filtered.length >= this.config.maxMarkets) {
+                    break;
+                }
+            } catch (error) {
+                console.warn(`⚠️  Failed to check liquidity for ${market.question.substring(0, 50)}:`, error);
+                // В случае ошибки пропускаем рынок
+            }
+        }
+
+        console.log(`✅ Selected ${filtered.length} markets with sufficient liquidity`);
+        return filtered;
+    }
+
+    /**
+     * Проверка ликвидности рынка
+     * Возвращает минимальную ликвидность из bid/ask на топ-5 уровнях
+     */
+    private async checkLiquidity(market: Market): Promise<number> {
+        if (!this.client || !market.tokens || market.tokens.length === 0) {
+            return 0;
+        }
+
+        // Проверяем YES токен (основная позиция в endgame)
+        const yesToken = getYesToken(market);
+        if (!yesToken) {
+            return 0;
+        }
+
+        try {
+            // Получаем orderbook
+            const orderbook = await this.client.getOrderBook(yesToken.token_id);
+
+            // Суммируем ликвидность на топ-5 уровнях
+            const bidLiquidity = orderbook.bids
+                .slice(0, 5)
+                .reduce((sum, level) => sum + parseFloat(level.size), 0);
+
+            const askLiquidity = orderbook.asks
+                .slice(0, 5)
+                .reduce((sum, level) => sum + parseFloat(level.size), 0);
+
+            // Возвращаем минимум (bottleneck)
+            return Math.min(bidLiquidity, askLiquidity);
+
+        } catch (error) {
+            // В случае ошибки API возвращаем 0
+            return 0;
+        }
+    }
+
+    /**
      * Генерация сигналов с расчетом хеджа
      */
     generateSignals(market: Market, currentPrice: number, position?: Position): TradeSignal[] {
         const signals: TradeSignal[] = [];
 
-        const yesToken = market.tokens.find(t => t.outcome === "Yes");
-        const noToken = market.tokens.find(t => t.outcome === "No");
+        const yesToken = getYesToken(market);
+        const noToken = getNoToken(market);
 
         if (!yesToken || !noToken) return signals;
 
@@ -197,7 +292,7 @@ export class EndgameStrategy implements IStrategy {
     /**
      * Проверка раннего выхода
      */
-    shouldClosePosition(market: Market, position: Position, currentPrice: number): boolean {
+    shouldClosePosition(market: Market, _position: Position, currentPrice: number): boolean {
         // Ранний выход если цена достигла порога (например 99%)
         if (currentPrice >= this.config.earlyExitThreshold) {
             return true;
@@ -221,14 +316,7 @@ export class EndgameStrategy implements IStrategy {
         return false;
     }
 
-    /**
-     * Расчет P&L с учетом хеджа
-     */
-    calculatePnL(position: Position, currentPrice: number): number {
-        const costBasis = position.size * position.averagePrice;
-        const currentValue = position.size * currentPrice;
-        return currentValue - costBasis;
-    }
+    // calculatePnL наследуется от BaseStrategy
 
     /**
      * Валидация сигнала
@@ -264,7 +352,8 @@ Endgame Sweep Strategy с хеджированием:
 📊 Фильтры:
    - Вероятность YES: ${minProb}% - ${maxProb}%
    - До разрешения: < ${daysToEnd} дней
-   - Объем: мин $${this.config.minVolume}
+   - Объем: не проверяется (API не возвращает volume)
+   - Ликвидность: ${this.config.minLiquidity ? `мин $${this.config.minLiquidity}` : 'не проверяется'}
    - Макс рынков: ${this.config.maxMarkets}
 
 💰 Управление капиталом:

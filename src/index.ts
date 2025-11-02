@@ -6,7 +6,9 @@
 import { ethers } from "ethers";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { ClobClient, Side, OrderType, AssetType } from "@polymarket/clob-client";
+import { getErrorMessage } from "./types/errors";
+// Используем OpenOrder из clob-client вместо нашего типа
 import { EndgameStrategy, EndgameConfig, DEFAULT_ORDER_SIZE } from "./strategies/EndgameStrategy";
 import {
     Market,
@@ -20,7 +22,7 @@ dotenvConfig({ path: resolve(__dirname, "../.env") });
 
 // Фильтрация логов CLOB Client (убираем шум)
 const originalConsoleError = console.error;
-console.error = (...args: any[]) => {
+console.error = (...args: unknown[]) => {
     const message = args[0]?.toString() || '';
     // Пропускаем логи от CLOB Client
     if (message.includes('[CLOB Client]')) {
@@ -46,11 +48,14 @@ const STRATEGY_CONFIG: EndgameConfig = {
     earlyExitThreshold: 0.99,  // Выходить если достигли 99%
 
     // Фильтры
-    minVolume: 0,              // Без ограничения по объему
+    // minVolume удален - volume не возвращается API
     maxMarkets: 5,             // Макс 5 сделок
     excludeNegRisk: true,      // Исключить NegRisk рынки
     minPrice: 0.90,
     maxPrice: 0.99,
+
+    // Фильтр ликвидности
+    minLiquidity: 100,         // Минимум $100 ликвидности
 };
 
 // Конфигурация бота
@@ -110,6 +115,9 @@ class PolymarketBot {
         );
 
         console.log("✅ Бот инициализирован");
+
+        // Передаем client в стратегию для проверки ликвидности
+        this.strategy.setClient(this.client);
 
         // Проверяем и устанавливаем approve для USDC
         await this.setupUSDCApproval();
@@ -175,8 +183,8 @@ class PolymarketBot {
             console.log(`   ✅ USDC approved! Теперь можно размещать ордера\n`);
             console.log(`   🔗 https://polygonscan.com/tx/${tx.hash}\n`);
 
-        } catch (error: any) {
-            console.log(`   ⚠️  Ошибка при approve: ${error.message}`);
+        } catch (error: unknown) {
+            console.log(`   ⚠️  Ошибка при approve: ${getErrorMessage(error)}`);
             console.log(`   Попробуй вручную сделать сделку на polymarket.com\n`);
         }
     }
@@ -188,8 +196,8 @@ class PolymarketBot {
         const response = await this.client.getSamplingMarkets();
         const markets = response.data || [];
 
-        // Используем фильтр стратегии
-        return this.strategy.filterMarkets(markets);
+        // Используем async фильтр стратегии с проверкой ликвидности
+        return this.strategy.asyncFilterMarkets(markets);
     }
 
     /**
@@ -266,7 +274,7 @@ class PolymarketBot {
                 {
                     tokenID: signal.tokenId,
                     price: signal.price,
-                    side: signal.side as any, // Side.BUY или Side.SELL
+                    side: signal.side === OrderSide.BUY ? Side.BUY : Side.SELL,
                     size: signal.size,
                 },
                 {
@@ -288,14 +296,15 @@ class PolymarketBot {
                 console.log(`   ❌ Ошибка размещения: ${errorMsg}`);
             }
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Обрабатываем специфичные ошибки
-            let errorMsg = error.message || 'Неизвестная ошибка';
+            let errorMsg = getErrorMessage(error);
+            const axiosError = error as { response?: { status?: number; data?: { error?: string } } };
 
-            if (error.response?.status === 403) {
+            if (axiosError.response?.status === 403) {
                 errorMsg = 'Cloudflare блокирует запросы. Включи VPN и попробуй позже';
-            } else if (error.response?.data?.error) {
-                errorMsg = error.response.data.error;
+            } else if (axiosError.response?.data?.error) {
+                errorMsg = axiosError.response.data.error;
             }
 
             console.log(`   ❌ Ошибка: ${errorMsg}`);
@@ -330,8 +339,8 @@ class PolymarketBot {
             console.log(`   ✅ Позиция закрыта`);
             this.positions.delete(position.tokenId);
 
-        } catch (error: any) {
-            console.error(`   ❌ Ошибка закрытия:`, error.message);
+        } catch (error: unknown) {
+            console.error(`   ❌ Ошибка закрытия:`, getErrorMessage(error));
         }
     }
 
@@ -369,12 +378,12 @@ class PolymarketBot {
             const params = {
                 address: address,
                 tokenID: "USDC",
-                asset_type: "COLLATERAL" as any
+                    asset_type: AssetType.COLLATERAL
             };
             const response = await this.client.getBalanceAllowance(params);
             return parseFloat(response.balance || "0");
-        } catch (error: any) {
-            console.log(`⚠️  Не удалось получить баланс: ${error.message}`);
+        } catch (error: unknown) {
+            console.log(`⚠️  Не удалось получить баланс: ${getErrorMessage(error)}`);
             return 0;
         }
     }
@@ -382,13 +391,13 @@ class PolymarketBot {
     /**
      * Получение открытых ордеров
      */
-    async getOpenOrders(): Promise<any[]> {
+    async getOpenOrders(): Promise<Array<import('@polymarket/clob-client').OpenOrder>> {
         try {
             // Получаем открытые ордера (live orders)
             const orders = await this.client.getOpenOrders();
             return orders || [];
-        } catch (error: any) {
-            console.log(`⚠️  Не удалось получить ордера: ${error.message}`);
+        } catch (error: unknown) {
+            console.log(`⚠️  Не удалось получить ордера: ${getErrorMessage(error)}`);
             return [];
         }
     }
@@ -416,11 +425,12 @@ class PolymarketBot {
             // Показываем детали ордеров если есть
             if (openOrders.length > 0) {
                 console.log(`\n📋 Активные ордера:`);
-                openOrders.slice(0, 10).forEach((order: any, i: number) => {
+                openOrders.slice(0, 10).forEach((order, i: number) => {
                     const side = order.side || 'N/A';
                     const size = order.size_matched || order.original_size || 'N/A';
                     const price = order.price ? `${(parseFloat(order.price) * 100).toFixed(2)}%` : 'N/A';
-                    const status = order.status || 'N/A';
+                    // status не существует в типе OpenOrder из clob-client
+                    const status = 'open'; // Всегда 'open' для открытых ордеров
                     console.log(`   ${i + 1}. [${status}] ${side} ${size} токенов @ ${price}`);
                 });
                 if (openOrders.length > 10) {
@@ -432,7 +442,7 @@ class PolymarketBot {
             if (this.positions.size > 0) {
                 console.log(`\n📍 Открытые позиции:`);
                 let posIndex = 1;
-                this.positions.forEach((position, tokenId) => {
+                this.positions.forEach((position, _tokenId) => {
                     const marketShort = position.market.length > 60
                         ? position.market.substring(0, 60) + '...'
                         : position.market;
@@ -475,8 +485,8 @@ class PolymarketBot {
             console.log(`📈 Открытых позиций: ${this.positions.size}`);
             console.log("=".repeat(70));
 
-        } catch (error: any) {
-            console.error("\n❌ Ошибка при поиске:", error.message);
+        } catch (error: unknown) {
+            console.error("\n❌ Ошибка при поиске:", getErrorMessage(error));
             throw error;
         }
     }
@@ -511,8 +521,8 @@ class PolymarketBot {
                     await this.runDailyEndgame();
                 }
 
-            } catch (error: any) {
-                console.error("\n❌ Ошибка в цикле:", error.message);
+            } catch (error: unknown) {
+                console.error("\n❌ Ошибка в цикле:", getErrorMessage(error));
                 console.log("⏳ Повтор через 1 час...");
                 await this.sleep(60 * 60 * 1000);
             }
@@ -569,9 +579,11 @@ async function main() {
 
         await bot.run();
 
-    } catch (error: any) {
-        console.error("\n💥 Критическая ошибка:", error.message);
-        console.error(error.stack);
+    } catch (error: unknown) {
+        console.error("\n💥 Критическая ошибка:", getErrorMessage(error));
+        if (error instanceof Error && error.stack) {
+            console.error(error.stack);
+        }
         process.exit(1);
     }
 }

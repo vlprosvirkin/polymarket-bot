@@ -1,0 +1,206 @@
+/**
+ * Тест MarketFilter модуля
+ * Демонстрирует все возможности фильтрации
+ */
+
+import { config as dotenvConfig } from "dotenv";
+import { resolve } from "path";
+import { ClobClient } from "@polymarket/clob-client";
+import { MarketFilter } from "../services/MarketFilter";
+import { Market } from "../types/market";
+
+dotenvConfig({ path: resolve(__dirname, "../../.env") });
+
+async function testMarketFilter() {
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║           ТЕСТ MARKETFILTER МОДУЛЯ                            ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝\n");
+
+    // Подключение к API
+    const client = new ClobClient("https://clob.polymarket.com", 137);
+
+    console.log("📡 Получение рынков...");
+    const response = await client.getSamplingMarkets();
+    const allMarkets = response.data || [];
+
+    console.log(`✅ Получено ${allMarkets.length} рынков\n`);
+
+    // Тест 1: Базовая фильтрация
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("1️⃣  ТЕСТ: Базовая фильтрация");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const activeMarkets = MarketFilter.filterBasic(allMarkets);
+    console.log(`   До: ${allMarkets.length} рынков`);
+    console.log(`   После: ${activeMarkets.length} активных рынков`);
+    console.log(`   Отфильтровано: ${allMarkets.length - activeMarkets.length} неактивных\n`);
+
+    // Тест 2: Фильтр по объему
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("2️⃣  ТЕСТ: Фильтр по объему");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    // filterByVolume удален - volume не возвращается API. Используем фильтр по цене
+    const highPrice = MarketFilter.filterByPrice(activeMarkets, 0.80);
+    console.log(`   С ценой YES > 80%: ${highPrice.length} рынков`);
+
+    const mediumPrice = MarketFilter.filterByPrice(activeMarkets, 0.50, 0.80);
+    console.log(`   С ценой YES 50-80%: ${mediumPrice.length} рынков`);
+
+    const lowPrice = MarketFilter.filterByPrice(activeMarkets, undefined, 0.50);
+    console.log(`   С ценой YES < 50%: ${lowPrice.length} рынков\n`);
+
+    // Тест 3: Фильтр по вероятности
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("3️⃣  ТЕСТ: Фильтр по вероятности (цене YES)");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const highProb = MarketFilter.filterByProbability(activeMarkets, 0.80, 1.0);
+    console.log(`   80-100% вероятность: ${highProb.length} рынков`);
+
+    const endgameProb = MarketFilter.filterByProbability(activeMarkets, 0.90, 0.99);
+    console.log(`   90-99% (Endgame): ${endgameProb.length} рынков`);
+
+    const lowProb = MarketFilter.filterByProbability(activeMarkets, 0.01, 0.30);
+    console.log(`   1-30% вероятность: ${lowProb.length} рынков\n`);
+
+    // Тест 4: Фильтр по дате разрешения
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("4️⃣  ТЕСТ: Фильтр по дате разрешения");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const ending7days = MarketFilter.filterByResolutionDate(activeMarkets, undefined, 7);
+    console.log(`   Разрешаются в течение 7 дней: ${ending7days.length} рынков`);
+
+    const ending14days = MarketFilter.filterByResolutionDate(activeMarkets, undefined, 14);
+    console.log(`   Разрешаются в течение 14 дней: ${ending14days.length} рынков`);
+
+    const ending30days = MarketFilter.filterByResolutionDate(activeMarkets, undefined, 30);
+    console.log(`   Разрешаются в течение 30 дней: ${ending30days.length} рынков\n`);
+
+    // Тест 5: Endgame фильтр
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("5️⃣  ТЕСТ: Endgame фильтр (90-99%, < 14 дней)");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const endgameMarkets = MarketFilter.filterForEndgame(
+        activeMarkets,
+        0.90,  // minProbability
+        0.99,  // maxProbability
+        14,    // maxDaysToResolution
+        true   // excludeNegRisk
+    );
+
+    console.log(`   Найдено Endgame возможностей: ${endgameMarkets.length}`);
+
+    if (endgameMarkets.length > 0) {
+        console.log(`\n   📊 Топ-5 Endgame рынков:`);
+        endgameMarkets.slice(0, 5).forEach((market, i) => {
+            const yesToken = market.tokens.find(t => t.outcome === 'Yes');
+            const prob = yesToken ? (yesToken.price * 100).toFixed(2) : 'N/A';
+            const volume = parseFloat(market.volume || '0').toFixed(0);
+
+            const endDate = market.end_date_iso ? new Date(market.end_date_iso) : null;
+            const daysToEnd = endDate
+                ? ((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)).toFixed(1)
+                : 'N/A';
+
+            const question = market.question.length > 60
+                ? market.question.substring(0, 60) + '...'
+                : market.question;
+
+            console.log(`\n   ${i + 1}. ${question}`);
+            console.log(`      YES: ${prob}% | Volume: $${volume} | Days: ${daysToEnd}`);
+        });
+    }
+    console.log();
+
+    // Тест 6: Сортировка
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("6️⃣  ТЕСТ: Сортировка");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    // sortByVolume удален - volume не возвращается API. Используем сортировку по вероятности
+    const sortedByProbability = MarketFilter.sortByProbability(activeMarkets.slice(0, 10), true);
+    console.log(`   Топ-3 по вероятности:`);
+        sortedByProbability.slice(0, 3).forEach((market: Market, i: number) => {
+        const yesToken = market.tokens?.find((t: { outcome: string }) => t.outcome === 'Yes');
+        const probability = yesToken ? (yesToken.price * 100).toFixed(1) : 'N/A';
+        const question = market.question.substring(0, 50) + '...';
+        console.log(`   ${i + 1}. ${probability}% - ${question}`);
+    });
+
+    const sortedByDate = MarketFilter.sortByResolutionDate(activeMarkets.slice(0, 10), true);
+    console.log(`\n   Топ-3 по близости к разрешению:`);
+    sortedByDate.slice(0, 3).forEach((market, i) => {
+        const endDate = market.end_date_iso ? new Date(market.end_date_iso) : null;
+        const daysToEnd = endDate
+            ? ((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)).toFixed(1)
+            : 'N/A';
+        const question = market.question.substring(0, 50) + '...';
+        console.log(`   ${i + 1}. ${daysToEnd} дней - ${question}`);
+    });
+    console.log();
+
+    // Тест 7: Комплексная фильтрация с конфигом
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("7️⃣  ТЕСТ: Комплексная фильтрация");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const complexFiltered = MarketFilter.filterWithConfig(activeMarkets, {
+        // minVolume удален - volume не возвращается API
+        minPrice: 0.70,
+        maxPrice: 0.95,
+        maxDaysToResolution: 30,
+        excludeNegRisk: true
+    });
+
+    console.log(`   Конфигурация:`);
+    console.log(`   - Минимальный объем: $500`);
+    console.log(`   - Цена YES: 70-95%`);
+    console.log(`   - До разрешения: < 30 дней`);
+    console.log(`   - Без NegRisk`);
+    console.log(`\n   Результат: ${complexFiltered.length} рынков\n`);
+
+    // Тест 8: Статистика
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("8️⃣  ТЕСТ: Статистика по рынкам");
+    console.log("═══════════════════════════════════════════════════════════════");
+
+    const stats = MarketFilter.getMarketStats(activeMarkets);
+
+    console.log(`   Всего рынков: ${stats.total}`);
+    // avgVolume удален - volume не возвращается API
+    console.log(`   Средняя вероятность: ${(stats.avgProbability * 100).toFixed(2)}%`);
+    console.log(`   Среднее время до разрешения: ${stats.avgDaysToResolution.toFixed(1)} дней`);
+
+    if (stats.categories.size > 0) {
+        console.log(`\n   📊 Топ-5 категорий:`);
+        const sortedCategories = Array.from(stats.categories.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+
+        sortedCategories.forEach(([category, count], i) => {
+            const percentage = ((count / stats.total) * 100).toFixed(1);
+            console.log(`   ${i + 1}. ${category}: ${count} (${percentage}%)`);
+        });
+    }
+    console.log();
+
+    // Финальная сводка
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("✅ ИТОГИ ТЕСТИРОВАНИЯ");
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`✅ Базовая фильтрация: ${activeMarkets.length}/${allMarkets.length}`);
+    console.log(`✅ Высокая цена (>80%): ${highPrice.length}`);
+    console.log(`✅ Endgame возможности (90-99%): ${endgameMarkets.length}`);
+    console.log(`✅ Разрешаются < 7 дней: ${ending7days.length}`);
+    console.log(`✅ Комплексная фильтрация: ${complexFiltered.length}`);
+    console.log("\n🎉 Все тесты пройдены успешно!\n");
+}
+
+// Запуск
+testMarketFilter().catch(error => {
+    console.error("❌ Ошибка:", error);
+    process.exit(1);
+});

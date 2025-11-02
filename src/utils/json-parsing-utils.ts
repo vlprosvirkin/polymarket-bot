@@ -4,9 +4,11 @@
  */
 import fs from 'fs';
 import path from 'path';
+import type { UnknownJSON } from '../types/json';
+
 export interface ParsedResponse {
     textPart: string;
-    jsonPart: any;
+    jsonPart: UnknownJSON;
     hasValidJson: boolean;
     parseErrors: string[];
 }
@@ -175,7 +177,7 @@ export function splitResponseIntoParts(content: string, agentType: string = 'unk
 /**
  * Find and parse JSON part in the content
  */
-function findJSONPart(content: string): { jsonPart: any; jsonStart: number } | null {
+function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: number } | null {
     console.log('🔍 Searching for JSON in content length:', content.length);
 
     // Look for JSON object with "claims" field
@@ -318,7 +320,7 @@ function findJSONEnd(content: string, startIndex: number): number {
  * Parse PortfolioAgent response (looks for portfolio recommendations JSON)
  * Similar to splitResponseIntoParts but searches for portfolio-specific fields
  */
-export function parsePortfolioAgentResponse(llmResponse: string, agentType: string = 'portfolio', timestamp: number = Date.now()): any {
+export function parsePortfolioAgentResponse(llmResponse: string, agentType: string = 'portfolio', timestamp: number = Date.now()): UnknownJSON {
     console.log('🔍 parsePortfolioAgentResponse: Starting parse, content length:', llmResponse.length);
 
     // Clean the content - remove markdown code blocks
@@ -501,18 +503,26 @@ No claims to make at this time.`
 
             console.log(`✅ Has valid JSON: ${result.hasValidJson}`);
             console.log(`📝 Text part length: ${result.textPart.length} chars`);
-            console.log(`🔧 JSON part keys: ${Object.keys(result.jsonPart).join(', ')}`);
+
+            if (result.jsonPart && typeof result.jsonPart === 'object' && !Array.isArray(result.jsonPart)) {
+                console.log(`🔧 JSON part keys: ${Object.keys(result.jsonPart).join(', ')}`);
+            }
 
             if (result.parseErrors.length > 0) {
                 console.log(`⚠️  Parse errors: ${result.parseErrors.join(', ')}`);
             }
 
-            if (result.jsonPart.claims) {
+            if (result.jsonPart && typeof result.jsonPart === 'object' && 'claims' in result.jsonPart && Array.isArray(result.jsonPart.claims)) {
                 console.log(`📊 Claims count: ${result.jsonPart.claims.length}`);
-                result.jsonPart.claims.forEach((claim: any, i: number) => {
-                    console.log(`   Claim ${i + 1}: ${claim.ticker} - ${claim.claim} (${(claim.confidence * 100).toFixed(1)}%)`);
-                    if (claim.riskFlags && claim.riskFlags.length > 0) {
-                        console.log(`   ⚠️  Risk flags: ${claim.riskFlags.join(', ')}`);
+                result.jsonPart.claims.forEach((claim: UnknownJSON, i: number) => {
+                    if (typeof claim === 'object' && claim !== null && !Array.isArray(claim)) {
+                        const ticker = 'ticker' in claim ? String(claim.ticker) : 'N/A';
+                        const claimText = 'claim' in claim ? String(claim.claim) : 'N/A';
+                        const confidence = 'confidence' in claim ? Number(claim.confidence) : 0;
+                        console.log(`   Claim ${i + 1}: ${ticker} - ${claimText} (${(confidence * 100).toFixed(1)}%)`);
+                        if ('riskFlags' in claim && Array.isArray(claim.riskFlags)) {
+                            console.log(`   ⚠️  Risk flags: ${claim.riskFlags.join(', ')}`);
+                        }
                     }
                 });
             }

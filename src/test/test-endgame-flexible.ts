@@ -27,7 +27,7 @@ const STRATEGY_CONFIG: EndgameConfig = {
     maxDaysToResolution: 999999, // Без ограничения по дате
     earlyExitThreshold: 0.99,
 
-    minVolume: 0,                 // БЕЗ фильтра по объему
+        // minVolume удален - volume не возвращается API
     maxMarkets: 20,
     excludeNegRisk: false,        // Включаем NegRisk рынки
     minPrice: 0.80,
@@ -206,7 +206,9 @@ class FlexibleEndgameTest {
         console.log(`\n5️⃣ Топ ${Math.min(filtered.length, 5)} возможностей:\n`);
 
         for (let i = 0; i < Math.min(filtered.length, 5); i++) {
-            await this.analyzeMarket(filtered[i], i + 1);
+            const market = filtered[i];
+            if (!market) continue;
+            await this.analyzeMarket(market, i + 1);
         }
 
         console.log("\n" + "=".repeat(70));

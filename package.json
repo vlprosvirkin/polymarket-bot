@@ -122,6 +122,8 @@
     "sha.js": "^2.4.12",
     "string_decoder": "^1.1.1",
     "strip-hex-prefix": "^1.0.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "to-buffer": "^1.2.2",
     "tr46": "^0.0.3",
     "ts-node": "^10.9.2",
@@ -144,6 +146,7 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "start:high": "ts-node src/bot-high-confidence.ts",
+    "start:ai": "ts-node src/bot-ai.ts",
     "start:api": "ts-node src/start-api.ts",
     "build": "tsc",
     "test:api": "ts-node src/test/test-api-connection.ts",
@@ -151,12 +154,19 @@
     "test:liquidity": "ts-node src/test/test-liquidity-service.ts",
     "test:volume": "ts-node src/test/test-volume-structure.ts",
     "test:high": "ts-node src/test/test-high-confidence.ts",
+    "test:tavily": "ts-node src/test/test-tavily.ts",
+    "test:ai-filter": "ts-node src/test/test-ai-filter.ts",
+    "test:ai-probability": "ts-node src/test/test-ai-probability-edge.ts",
+    "test:market-filter": "ts-node src/test/test-market-filter.ts",
+    "test:enriched-filter": "ts-node src/test/test-enriched-filter.ts",
     "positions": "ts-node scripts/check-positions.ts",
     "verify": "ts-node scripts/verify-setup.ts",
     "check-balance": "ts-node scripts/check-balance.ts",
     "generate-wallet": "ts-node scripts/generate-wallet.ts",
     "create-api-keys": "ts-node scripts/create-api-keys.ts",
-    "trade": "ts-node scripts/simple-trade.ts"
+    "trade": "ts-node scripts/simple-trade.ts",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
   },
   "repository": {
     "type": "git",
@@ -171,7 +181,14 @@
   "homepage": "https://github.com/vlprosvirkin/polymarket-bot#readme",
   "description": "",
   "devDependencies": {
+    "@eslint/js": "^9.39.0",
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.5"
+    "@types/express": "^5.0.5",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.39.0",
+    "typescript-eslint": "^8.46.2"
   }
 }

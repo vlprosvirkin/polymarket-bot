@@ -4,8 +4,10 @@
 
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
 import { ClobClient } from '@polymarket/clob-client';
 import { createPositionsRoutes } from './routes/positions.routes';
+import { swaggerSpec } from './swagger';
 
 export class ApiServer {
     private app: Express;
@@ -29,7 +31,7 @@ export class ApiServer {
         this.app.use(express.json());
 
         // Request logging
-        this.app.use((req, res, next) => {
+        this.app.use((req, _res, next) => {
             console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
             next();
         });
@@ -37,7 +39,7 @@ export class ApiServer {
 
     private setupRoutes() {
         // Health check
-        this.app.get('/health', (req: Request, res: Response) => {
+        this.app.get('/health', (_req: Request, res: Response) => {
             res.json({
                 status: 'ok',
                 timestamp: new Date().toISOString(),
@@ -46,10 +48,11 @@ export class ApiServer {
         });
 
         // API info
-        this.app.get('/', (req: Request, res: Response) => {
+        this.app.get('/', (_req: Request, res: Response) => {
             res.json({
                 name: 'Polymarket Bot API',
                 version: '1.0.0',
+                documentation: `http://localhost:${this.port}/api-docs`,
                 endpoints: {
                     health: 'GET /health',
                     positions: {
@@ -65,6 +68,9 @@ export class ApiServer {
             });
         });
 
+        // Swagger documentation
+        this.app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
         // Positions routes
         this.app.use('/api/positions', createPositionsRoutes(this.client));
 
@@ -78,7 +84,7 @@ export class ApiServer {
         });
 
         // Error handler
-        this.app.use((err: Error, req: Request, res: Response, next: any) => {
+        this.app.use((err: Error, _req: Request, res: Response, _next: express.NextFunction) => {
             console.error('Error:', err);
             res.status(500).json({
                 success: false,
@@ -92,6 +98,7 @@ export class ApiServer {
             console.log(`\n🚀 API Server running on http://localhost:${this.port}`);
             console.log(`📊 Dashboard: http://localhost:${this.port}`);
             console.log(`📋 Positions: http://localhost:${this.port}/api/positions/summary`);
+            console.log(`📚 Swagger Docs: http://localhost:${this.port}/api-docs`);
             console.log(`\nPress Ctrl+C to stop\n`);
         });
     }

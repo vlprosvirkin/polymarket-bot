@@ -7,7 +7,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { resolve } from 'path';
 import { ClobClient } from '@polymarket/clob-client';
 import { AIMarketScorer } from '../services/ai/ai-market-scorer.js';
-import type { Market } from '../types/market.js';
+// import type { Market } from '../types/market.js'; // Не используется
 
 dotenvConfig({ path: resolve(__dirname, '../../.env') });
 

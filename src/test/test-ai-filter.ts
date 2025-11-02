@@ -6,8 +6,8 @@
 import { config as dotenvConfig } from 'dotenv';
 import { resolve } from 'path';
 import { ClobClient } from '@polymarket/clob-client';
-import { AIMarketFilter } from '../services/ai/ai-market-filter.js';
-import type { Market } from '../types/market.js';
+import { AIMarketFilter } from '../services/ai/ai-market-filter';
+// import type { Market } from '../types/market'; // Не используется
 
 dotenvConfig({ path: resolve(__dirname, '../../.env') });
 
@@ -35,8 +35,15 @@ async function testAIMarketFilter() {
     console.log(`🎯 Testing with ${activeMarkets.length} active markets\n`);
 
     // 4. Инициализация AI Market Filter
-    const filter = new AIMarketFilter();
-    console.log('🤖 AI Market Filter initialized\n');
+    // Используем новости из SerpAPI (как в Poly-Trader)
+    const useNews = !!process.env.SERP_API_KEY;
+    const filter = new AIMarketFilter(useNews);
+    
+    if (useNews) {
+        console.log('🤖 AI Market Filter initialized with SerpAPI news integration\n');
+    } else {
+        console.log('🤖 AI Market Filter initialized (news disabled - set SERP_API_KEY to enable)\n');
+    }
 
     // 5. Тестируем анализ одного рынка
     console.log('='.repeat(80));

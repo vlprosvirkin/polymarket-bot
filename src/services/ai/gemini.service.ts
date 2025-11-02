@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import type { AIProvider, AIProviderResponse } from '../../types/ai-provider.js';
-import { splitResponseIntoParts } from '../../utils/json-parsing-utils.js';
+import type { AIProvider, AIProviderResponse } from '../../types/ai-provider';
+import { splitResponseIntoParts } from '../../utils/json-parsing-utils';
 
 export class GeminiService implements AIProvider {
     private client: GoogleGenerativeAI;
@@ -66,7 +66,7 @@ export class GeminiService implements AIProvider {
 
             // Parse JSON if requested
             let textPart: string | undefined;
-            let jsonPart: any | undefined;
+            let jsonPart: import('../../types/json').UnknownJSON | undefined;
 
             if (options.parseJson) {
                 const parsed = splitResponseIntoParts(content, 'gemini', Date.now());

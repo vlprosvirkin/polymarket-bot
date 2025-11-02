@@ -10,6 +10,9 @@ import {
     TradeSignal,
     Position
 } from '../types';
+import { getYesToken } from '../utils/market-utils';
+import { calculatePnL as calculatePnLUtil, formatPrice } from '../utils/price-utils';
+import { MarketFilter } from '../services/MarketFilter';
 
 export class BaseStrategy implements IStrategy {
     name = "Base Market Making Strategy";
@@ -21,44 +24,18 @@ export class BaseStrategy implements IStrategy {
 
     /**
      * Фильтрация рынков по критериям стратегии
+     * Использует MarketFilter для базовой фильтрации (устраняет дублирование)
      */
     filterMarkets(markets: Market[]): Market[] {
-        return markets.filter(market => {
-            // Только активные рынки
-            if (!market.active || market.closed || !market.accepting_orders) {
-                return false;
-            }
+        // Базовая фильтрация через MarketFilter
+        let filtered = MarketFilter.filterWithConfig(markets, {
+            minPrice: this.config.minPrice,
+            maxPrice: this.config.maxPrice,
+            excludeNegRisk: this.config.excludeNegRisk
+        });
 
-            // Должны быть токены
-            if (!market.tokens || market.tokens.length === 0) {
-                return false;
-            }
-
-            // Минимальный объем
-            const volume = parseFloat(market.volume || "0");
-            if (volume < this.config.minVolume) {
-                return false;
-            }
-
-            // Исключить NegRisk если настроено
-            if (this.config.excludeNegRisk && market.neg_risk) {
-                return false;
-            }
-
-            // Фильтр по цене токена
-            const yesToken = market.tokens[0];
-            const price = yesToken.price;
-
-            if (this.config.minPrice && price < this.config.minPrice) {
-                return false;
-            }
-
-            if (this.config.maxPrice && price > this.config.maxPrice) {
-                return false;
-            }
-
-            return true;
-        }).slice(0, this.config.maxMarkets);
+        // Ограничиваем количество рынков
+        return filtered.slice(0, this.config.maxMarkets);
     }
 
     /**
@@ -66,7 +43,8 @@ export class BaseStrategy implements IStrategy {
      */
     generateSignals(market: Market, currentPrice: number, position?: Position): TradeSignal[] {
         const signals: TradeSignal[] = [];
-        const yesToken = market.tokens[0];
+        const yesToken = getYesToken(market);
+        if (!yesToken) return signals;
         const currentPosition = position?.size || 0;
 
         // Рассчитываем bid/ask цены с учетом spread
@@ -82,7 +60,7 @@ export class BaseStrategy implements IStrategy {
                 side: OrderSide.BUY,
                 price: bidPrice,
                 size: this.config.orderSize,
-                reason: `Market making BID @ ${(bidPrice * 100).toFixed(2)}%`
+                reason: `Market making BID @ ${formatPrice(bidPrice)}`
             });
         }
 
@@ -94,7 +72,7 @@ export class BaseStrategy implements IStrategy {
                 side: OrderSide.SELL,
                 price: askPrice,
                 size: Math.min(this.config.orderSize, currentPosition),
-                reason: `Market making ASK @ ${(askPrice * 100).toFixed(2)}%`
+                reason: `Market making ASK @ ${formatPrice(askPrice)}`
             });
         }
 
@@ -104,7 +82,7 @@ export class BaseStrategy implements IStrategy {
     /**
      * Проверка нужно ли закрыть позицию
      */
-    shouldClosePosition(market: Market, position: Position, currentPrice: number): boolean {
+    shouldClosePosition(market: Market, _position: Position, currentPrice: number): boolean {
         // Закрываем если цена выше порога прибыли
         if (currentPrice >= this.config.profitThreshold) {
             return true;
@@ -132,9 +110,7 @@ export class BaseStrategy implements IStrategy {
      * Расчет P&L для позиции
      */
     calculatePnL(position: Position, currentPrice: number): number {
-        const costBasis = position.size * position.averagePrice;
-        const currentValue = position.size * currentPrice;
-        return currentValue - costBasis;
+        return calculatePnLUtil(position.size, position.averagePrice, currentPrice);
     }
 
     /**

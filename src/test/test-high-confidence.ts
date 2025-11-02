@@ -19,7 +19,7 @@ const STRATEGY_CONFIG: StrategyConfig = {
     maxPosition: 1000, // Максимальная позиция
     profitThreshold: 0.95, // Закрывать при 95%
     stopLoss: 0.75, // Stop loss при падении ниже 75%
-    minVolume: 5000, // Минимум $5000 объема
+    // minVolume удален - volume не возвращается API
     maxMarkets: 5, // Топ 5 рынков
     excludeNegRisk: true,
     minPrice: 0.80, // Минимум 80% (главный фильтр)
@@ -119,7 +119,9 @@ class HighConfidenceTest {
         console.log(`\n3️⃣ Топ ${filtered.length} рынков с высокой вероятностью:\n`);
 
         for (let i = 0; i < filtered.length; i++) {
-            await this.testMarket(filtered[i], i + 1);
+            const market = filtered[i];
+            if (!market) continue;
+            await this.testMarket(market, i + 1);
         }
 
         console.log("\n" + "=".repeat(70));

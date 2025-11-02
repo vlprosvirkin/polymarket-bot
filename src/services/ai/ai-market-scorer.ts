@@ -3,8 +3,8 @@
  * Использует AI для оценки привлекательности рынков для торговли
  */
 
-import type { Market } from '../../types/market.js';
-import { AIService } from './ai.service.js';
+import type { Market } from '../../types/market';
+import { AIService } from './ai.service';
 
 export interface MarketScore {
     score: number; // 0-1, где 1 = самый привлекательный
@@ -60,7 +60,7 @@ Respond in JSON format.`;
             });
 
             // Парсим JSON ответ
-            let scoreData: any;
+            let scoreData: import('../../types/json').UnknownJSON;
             if (response.jsonPart) {
                 scoreData = response.jsonPart;
             } else {
@@ -156,37 +156,53 @@ Respond in JSON format.`;
     /**
      * Нормализация ответа AI
      */
-    private normalizeScore(data: any): MarketScore {
+    private normalizeScore(data: unknown): MarketScore {
+        const typed = data as import('../../types/ai-response').AIMarketScoreJSON;
+        
+        const scoreValue = typeof typed.score === 'string' 
+            ? parseFloat(typed.score) 
+            : (typeof typed.score === 'number' ? typed.score : undefined);
+        const score = scoreValue !== undefined 
+            ? Math.max(0, Math.min(1, scoreValue || 0.5))
+            : 0.5;
+
+        const confidenceValue = typeof typed.confidence === 'string'
+            ? parseFloat(typed.confidence)
+            : (typeof typed.confidence === 'number' ? typed.confidence : undefined);
+        const confidence = confidenceValue !== undefined
+            ? Math.max(0, Math.min(1, confidenceValue || 0.5))
+            : 0.5;
+
         return {
-            score: Math.max(0, Math.min(1, parseFloat(data.score) || 0.5)),
-            confidence: Math.max(0, Math.min(1, parseFloat(data.confidence) || 0.5)),
-            reasoning: data.reasoning || data.reason || 'No reasoning provided',
-            riskFactors: Array.isArray(data.riskFactors) 
-                ? data.riskFactors 
-                : (data.riskFactors ? [String(data.riskFactors)] : []),
-            opportunities: Array.isArray(data.opportunities)
-                ? data.opportunities
-                : (data.opportunities ? [String(data.opportunities)] : [])
+            score,
+            confidence,
+            reasoning: typed.reasoning || typed.reason || 'No reasoning provided',
+            riskFactors: Array.isArray(typed.riskFactors)
+                ? typed.riskFactors as string[]
+                : (typed.riskFactors ? [String(typed.riskFactors)] : []),
+            opportunities: Array.isArray(typed.opportunities)
+                ? typed.opportunities as string[]
+                : (typed.opportunities ? [String(typed.opportunities)] : [])
         };
     }
 
     /**
      * Парсинг score из текста (fallback)
      */
-    private parseScoreFromText(text: string): any {
+    private parseScoreFromText(text: string): import('../../types/json').UnknownJSON {
         // Попытка найти JSON в тексте
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             try {
                 return JSON.parse(jsonMatch[0]);
-            } catch {
-                // Игнорируем ошибки парсинга
+            } catch (error) {
+                console.warn('⚠️  Failed to parse JSON from AI scorer response:', error);
             }
         }
 
         // Попытка найти score в тексте
         const scoreMatch = text.match(/score["\s]*:[\s]*([0-9.]+)/i);
-        const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0.5;
+        const score = scoreMatch && scoreMatch[1] ? parseFloat(scoreMatch[1]) : 0.5;
 
         return {
             score,

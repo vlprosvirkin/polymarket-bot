@@ -8,27 +8,15 @@
  * 4. Placing a test order (commented out for safety)
  */
 
-import { ethers } from "ethers";
+// import { ethers } from "ethers"; // Используется только в закомментированной функции
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { ClobClient } from "@polymarket/clob-client";
 
 // Load environment variables
 dotenvConfig({ path: resolve(__dirname, "../../.env") });
 
-interface Market {
-    condition_id: string;
-    question: string;
-    end_date_iso: string;
-    tokens: Array<{
-        token_id: string;
-        outcome: string;
-        price: number;
-    }>;
-    active: boolean;
-    closed: boolean;
-    volume?: string;
-}
+// Используем типы из @polymarket/clob-client или наши типы из src/types/market.ts
 
 async function testApiConnection() {
     console.log("🚀 Starting Polymarket API Connection Test...\n");
@@ -161,7 +149,9 @@ console.log("Order placed:", order);
 `);
 }
 
-async function placeTestOrder() {
+/*
+// Функция для тестирования размещения ордеров (закомментирована, т.к. не используется в автоматических тестах)
+async function _placeTestOrder() {
     console.log("\n\n🔐 Step 5: Placing Test Order (AUTHENTICATED)");
     console.log("=" .repeat(80));
 
@@ -205,24 +195,22 @@ async function placeTestOrder() {
         console.log(`Token: ${token.outcome} (${token.token_id.substring(0, 20)}...)`);
 
         // UNCOMMENT BELOW TO ACTUALLY PLACE AN ORDER
-        /*
-        const order = await authClient.createAndPostOrder(
-            {
-                tokenID: token.token_id,
-                price: 0.01, // Very low price for safety
-                side: Side.BUY,
-                size: 1, // Minimal size
-            },
-            {
-                tickSize: "0.01",
-                negRisk: false
-            },
-            OrderType.GTC
-        );
-
-        console.log("✅ Order placed successfully:");
-        console.log(order);
-        */
+        // const order = await authClient.createAndPostOrder(
+        //     {
+        //         tokenID: token.token_id,
+        //         price: 0.01, // Very low price for safety
+        //         side: Side.BUY,
+        //         size: 1, // Minimal size
+        //     },
+        //     {
+        //         tickSize: "0.01",
+        //         negRisk: false
+        //     },
+        //     OrderType.GTC
+        // );
+        //
+        // console.log("✅ Order placed successfully:");
+        // console.log(order);
 
         console.log("\n⚠️  Order placement code is commented out for safety");
         console.log("   Uncomment the order placement code above to test");
@@ -234,6 +222,7 @@ async function placeTestOrder() {
         }
     }
 }
+*/
 
 // Run the test
 testApiConnection()

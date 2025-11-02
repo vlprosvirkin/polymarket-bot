@@ -10,6 +10,8 @@ npm run start:api
 
 Сервер запустится на `http://localhost:3000` (порт можно изменить в `.env` через `API_PORT`)
 
+**Swagger UI**: После запуска доступен по адресу `http://localhost:3000/api-docs`
+
 ## Endpoints
 
 ### GET /health

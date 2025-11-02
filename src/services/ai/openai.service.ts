@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
-import type { AIProvider, AIProviderResponse } from '../../types/ai-provider.js';
-import { splitResponseIntoParts } from '../../utils/json-parsing-utils.js';
-import { API_CONFIG } from '../../core/config.js';
+import type { AIProvider, AIProviderResponse } from '../../types/ai-provider';
+import { splitResponseIntoParts } from '../../utils/json-parsing-utils';
+import { API_CONFIG } from '../../core/config';
 
 export class OpenAIService implements AIProvider {
     private client: OpenAI;
@@ -79,7 +79,7 @@ export class OpenAIService implements AIProvider {
         } = {}
     ): Promise<AIProviderResponse> {
         const maxRetries = 3;
-        let lastError: any;
+        let lastError: unknown;
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
@@ -145,7 +145,7 @@ export class OpenAIService implements AIProvider {
 
                 // Parse JSON if requested
                 let textPart: string | undefined;
-                let jsonPart: any | undefined;
+                let jsonPart: import('../../types/json').UnknownJSON | undefined;
 
                 if (options.parseJson) {
                     const parsed = splitResponseIntoParts(content, 'openai', Date.now());
@@ -168,21 +168,31 @@ export class OpenAIService implements AIProvider {
                     }
                 };
 
-            } catch (error: any) {
+            } catch (error: unknown) {
                 lastError = error;
-                const isRetryable = error.message?.includes('ECONNRESET') ||
-                    error.message?.includes('ETIMEDOUT') ||
-                    error.message?.includes('Connection error') ||
-                    error.message?.includes('Request timed out') ||
-                    error.message?.includes('timeout') ||
-                    error.status === 429 || // Rate limit
-                    error.status === 500 || // Server error
-                    error.status === 503;   // Service unavailable
+                const errorMessage = error instanceof Error ? error.message : String(error);
 
+                // Типизируем ошибку с возможными полями API
+                interface ApiError {
+                    status?: number;
+                    code?: string;
+                }
+                const apiError = error as ApiError;
+                const errorStatus = apiError.status;
+                const isRetryable = errorMessage.includes('ECONNRESET') ||
+                    errorMessage.includes('ETIMEDOUT') ||
+                    errorMessage.includes('Connection error') ||
+                    errorMessage.includes('Request timed out') ||
+                    errorMessage.includes('timeout') ||
+                    errorStatus === 429 || // Rate limit
+                    errorStatus === 500 || // Server error
+                    errorStatus === 503;   // Service unavailable
+
+                const errorObj = error instanceof Error ? error : { message: String(error) };
                 console.error(`❌ OpenAI API error (attempt ${attempt}/${maxRetries}):`, {
-                    message: error.message,
-                    status: error.status,
-                    code: error.code,
+                    message: errorObj.message,
+                    status: apiError.status,
+                    code: apiError.code,
                     isRetryable
                 });
 

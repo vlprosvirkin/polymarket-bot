@@ -7,6 +7,7 @@ import { ethers } from "ethers";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
 import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { getErrorMessage } from "./types/errors";
 import { HighConfidenceStrategy } from "./strategies";
 import {
     Market,
@@ -25,7 +26,7 @@ const STRATEGY_CONFIG: StrategyConfig = {
     maxPosition: 1000,
     profitThreshold: 0.95, // Закрывать при 95%
     stopLoss: 0.75, // Stop loss при падении до 75%
-    minVolume: 5000, // Минимум $5000 объема
+    // minVolume удален - volume не возвращается API. Для проверки ликвидности используйте PolymarketDataService
     maxMarkets: 5, // Макс 5 рынков одновременно
     excludeNegRisk: true,
     minPrice: 0.80, // Главный фильтр: >= 80%
@@ -148,7 +149,7 @@ class HighConfidenceBot {
                 {
                     tokenID: signal.tokenId,
                     price: signal.price,
-                    side: signal.side as any,
+                    side: signal.side === OrderSide.BUY ? Side.BUY : Side.SELL,
                     size: signal.size,
                 },
                 {
@@ -168,8 +169,8 @@ class HighConfidenceBot {
                 console.log(`   ❌ Ошибка: ${order.errorMsg}`);
             }
 
-        } catch (error: any) {
-            console.error(`   ❌ Ошибка исполнения:`, error.message);
+        } catch (error: unknown) {
+            console.error(`   ❌ Ошибка исполнения:`, getErrorMessage(error));
         }
     }
 
@@ -196,8 +197,8 @@ class HighConfidenceBot {
             console.log(`   ✅ Позиция закрыта`);
             this.positions.delete(position.tokenId);
 
-        } catch (error: any) {
-            console.error(`   ❌ Ошибка закрытия:`, error.message);
+        } catch (error: unknown) {
+            console.error(`   ❌ Ошибка закрытия:`, getErrorMessage(error));
         }
     }
 
@@ -245,8 +246,8 @@ class HighConfidenceBot {
                 console.log(`\n⏳ Ожидание ${BOT_CONFIG.updateInterval / 1000} секунд...`);
                 await this.sleep(BOT_CONFIG.updateInterval);
 
-            } catch (error: any) {
-                console.error("\n❌ Ошибка:", error.message);
+            } catch (error: unknown) {
+                console.error("\n❌ Ошибка:", getErrorMessage(error));
                 console.log("⏳ Пауза 60 секунд...");
                 await this.sleep(60000);
             }
@@ -291,9 +292,11 @@ async function main() {
 
         await bot.run();
 
-    } catch (error: any) {
-        console.error("\n💥 Критическая ошибка:", error.message);
-        console.error(error.stack);
+    } catch (error: unknown) {
+        console.error("\n💥 Критическая ошибка:", getErrorMessage(error));
+        if (error instanceof Error && error.stack) {
+            console.error(error.stack);
+        }
         process.exit(1);
     }
 }
