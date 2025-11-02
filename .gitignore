@@ -45,5 +45,5 @@ keystore/
 coverage/
 .nyc_output/
 
-# Cloned repositories (опционально, можно раскомментировать)
-# clob-client/
+# Cloned repositories
+clob-client/
