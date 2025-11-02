@@ -1,11 +1,12 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import type { AIProvider, AIProviderResponse } from '../../types/ai-provider.ts';
-import { splitResponseIntoParts, extractClaimsFromJSON, extractClaimsFromText } from '../../utils/json-parsing-utils.ts';
+import type { AIProvider, AIProviderResponse } from '../../types/ai-provider.js';
+import { splitResponseIntoParts } from '../../utils/json-parsing-utils.js';
 
 export class GeminiService implements AIProvider {
     private client: GoogleGenerativeAI;
     private model: GenerativeModel;
     private readonly systemPrompt: string;
+    private readonly modelName: string;
 
     constructor(systemPrompt: string) {
         this.systemPrompt = systemPrompt;
@@ -14,12 +15,12 @@ export class GeminiService implements AIProvider {
 
         this.client = new GoogleGenerativeAI(apiKey);
 
-        const model = process.env.GEMINI_MODEL || (process.env.NODE_ENV == 'production'
+        this.modelName = process.env.GEMINI_MODEL || (process.env.NODE_ENV == 'production'
             ? 'gemini-2.5-flash'
             : 'gemini-2.5-flash');
 
         this.model = this.client.getGenerativeModel({
-            model,
+            model: this.modelName,
             systemInstruction: systemPrompt,
             generationConfig: {
                 temperature: 0.3,
@@ -27,75 +28,26 @@ export class GeminiService implements AIProvider {
             }
         });
 
-        console.log(`🤖 Gemini Service initialized with model: ${model}`);
+        console.log(`🤖 Gemini Service initialized with model: ${this.modelName}`);
     }
 
-    async generateClaimsWithReasoning(
-        userPrompt: string,
-        context: any
+    async generateResponse(
+        prompt: string,
+        options: {
+            maxTokens?: number;
+            temperature?: number;
+            systemPrompt?: string;
+            parseJson?: boolean;
+        } = {}
     ): Promise<AIProviderResponse> {
         try {
-            // Generate unique request ID
-            const requestId = `${context.agentRole || 'unknown'}_${context.timestamp}_${Math.random().toString(36).substr(2, 9)}`;
-            console.log(`🔍 Gemini Request ID: ${requestId}`);
+            const systemPrompt = options.systemPrompt || this.systemPrompt;
 
-            const result = await this.model.generateContent(userPrompt);
-            const content = result.response.text();
-
-            if (!content) {
-                throw new Error('No content received from Gemini');
-            }
-
-            // Log token usage for cost tracking (Gemini doesn't provide usage info in the same way)
-            console.log(`💰 Gemini response generated`);
-
-            // Split response into text part and JSON part
-            const { textPart, jsonPart, hasValidJson } = splitResponseIntoParts(content, context.agentRole || 'gemini', context.timestamp || Date.now());
-
-            // Parse claims from JSON part or text if JSON parsing failed
-            let claims;
-            if (hasValidJson) {
-                claims = extractClaimsFromJSON(jsonPart, {
-                    ...context,
-                    timestamp: context.timestamp,
-                    requestId
-                });
-            } else {
-                // Fallback: extract claims from text (for sentiment agent)
-                claims = extractClaimsFromText(textPart, {
-                    ...context,
-                    timestamp: context.timestamp,
-                    requestId
-                });
-            }
-
-            return {
-                claims,
-                openaiResponse: content,
-                textPart,
-                jsonPart
-            };
-
-        } catch (error) {
-            console.error('Gemini API error:', error);
-            throw new Error(`Failed to generate claims: ${error}`);
-        }
-    }
-
-    // Simple response generation for summaries
-    async generateResponse(
-        userPrompt: string,
-        options: { maxTokens?: number; temperature?: number } = {}
-    ): Promise<string> {
-        try {
-            console.log(`🔍 Generating simple Gemini response`);
-
-            if (options.maxTokens || options.temperature) {
+            // Update model config if options changed
+            if (options.maxTokens || options.temperature !== undefined) {
                 this.model = this.client.getGenerativeModel({
-                    model: process.env.GEMINI_MODEL || (process.env.NODE_ENV == 'production'
-                        ? 'gemini-2.5-flash'
-                        : 'gemini-2.5-flash'),
-                    systemInstruction: this.systemPrompt,
+                    model: this.modelName,
+                    systemInstruction: systemPrompt,
                     generationConfig: {
                         temperature: options.temperature ?? 0.3,
                         maxOutputTokens: options.maxTokens ?? 4000
@@ -103,14 +55,39 @@ export class GeminiService implements AIProvider {
                 });
             }
 
-            const result = await this.model.generateContent(userPrompt);
+            console.log(`🔍 Generating Gemini response`);
+
+            const result = await this.model.generateContent(prompt);
             const content = result.response.text();
 
-            if (!content) throw new Error('No content received from Gemini');
+            if (!content) {
+                throw new Error('No content received from Gemini');
+            }
 
-            console.log(`💰 Simple Gemini response generated`);
+            // Parse JSON if requested
+            let textPart: string | undefined;
+            let jsonPart: any | undefined;
 
-            return content;
+            if (options.parseJson) {
+                const parsed = splitResponseIntoParts(content, 'gemini', Date.now());
+                textPart = parsed.textPart;
+                if (parsed.hasValidJson) {
+                    jsonPart = parsed.jsonPart;
+                }
+            }
+
+            console.log(`💰 Gemini response generated`);
+
+            return {
+                response: content,
+                textPart,
+                jsonPart,
+                metadata: {
+                    model: this.modelName,
+                    finishReason: result.response.candidates?.[0]?.finishReason
+                }
+            };
+
         } catch (error) {
             console.error('Gemini API error:', error);
             throw new Error(`Failed to generate response: ${error}`);

@@ -33,6 +33,7 @@ npm run trade
 - `npm run test:endgame` - анализ возможностей
 
 **Утилиты:**
+- `npm run positions` - проверка текущих позиций
 - `npm run check-balance` - проверка балансов
 - `npm run test:liquidity` - проверка ликвидности рынков
 

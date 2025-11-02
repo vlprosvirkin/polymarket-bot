@@ -81,20 +81,15 @@ export class AIService implements AIProvider {
         throw new Error(`${operationName} failed with all providers: ${errors.join(', ')}`);
     }
 
-    async generateClaimsWithReasoning(
-      userPrompt: string,
-      context: any
-    ): Promise<AIProviderResponse> {
-        return this.tryWithFallbackChain(
-          (service) => service.generateClaimsWithReasoning(userPrompt, context),
-          'Generate claims with reasoning'
-        );
-    }
-
     async generateResponse(
       prompt: string,
-      options: { maxTokens?: number; temperature?: number } = {}
-    ): Promise<string> {
+      options: { 
+          maxTokens?: number; 
+          temperature?: number;
+          systemPrompt?: string;
+          parseJson?: boolean;
+      } = {}
+    ): Promise<AIProviderResponse> {
         return this.tryWithFallbackChain(
           (service) => service.generateResponse(prompt, options),
           'Generate response'

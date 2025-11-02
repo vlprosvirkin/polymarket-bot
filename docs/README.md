@@ -36,7 +36,8 @@ npm start               # Запуск бота (demo режим)
 - `npm run test:volume` - отладка структуры API данных
 
 ### Утилиты
-- `npm run check-balance` - проверка балансов
+- `npm run positions` - проверка текущих позиций (ордера, сделки, балансы)
+- `npm run check-balance` - проверка балансов MATIC и USDC.e
 - `npm run trade` - тестовая торговля
 
 ## Стратегия Endgame

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@polymarket/clob-client": "^4.22.8",
     "abstract-leveldown": "^6.3.0",
     "acorn": "^8.15.0",
@@ -100,6 +101,7 @@
     "node-addon-api": "^2.0.2",
     "node-fetch": "^2.7.0",
     "node-gyp-build": "^4.8.4",
+    "openai": "^6.7.0",
     "pbkdf2": "^3.1.5",
     "possible-typed-array-names": "^1.1.0",
     "process-nextick-args": "^2.0.1",
@@ -146,6 +148,7 @@
     "test:liquidity": "ts-node src/test/test-liquidity-service.ts",
     "test:volume": "ts-node src/test/test-volume-structure.ts",
     "test:high": "ts-node src/test/test-high-confidence.ts",
+    "positions": "ts-node scripts/check-positions.ts",
     "verify": "ts-node scripts/verify-setup.ts",
     "check-balance": "ts-node scripts/check-balance.ts",
     "generate-wallet": "ts-node scripts/generate-wallet.ts",

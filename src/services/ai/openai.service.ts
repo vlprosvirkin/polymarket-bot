@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
-import type { Claim } from '../../types/index.js';
 import type { AIProvider, AIProviderResponse } from '../../types/ai-provider.js';
-import { splitResponseIntoParts, extractClaimsFromJSON, extractClaimsFromText } from '../../utils/json-parsing-utils.js';
+import { splitResponseIntoParts } from '../../utils/json-parsing-utils.js';
 import { API_CONFIG } from '../../core/config.js';
 
 export class OpenAIService implements AIProvider {
@@ -70,38 +69,57 @@ export class OpenAIService implements AIProvider {
         };
     }
 
-    async generateClaimsWithReasoning(
-        userPrompt: string,
-        context: any
+    async generateResponse(
+        prompt: string,
+        options: {
+            maxTokens?: number;
+            temperature?: number;
+            systemPrompt?: string;
+            parseJson?: boolean;
+        } = {}
     ): Promise<AIProviderResponse> {
-        const requestId = `${context.agentRole || 'unknown'}_${context.timestamp}_${Math.random().toString(36).substr(2, 9)}`;
         const maxRetries = 3;
-        let lastError;
+        let lastError: any;
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const requestStartTime = Date.now();
-                console.log(`🔍 OpenAI Request ID: ${requestId} using model: ${this.model} (attempt ${attempt}/${maxRetries})`);
-                console.log(`   Agent: ${context.agentRole}`);
-                console.log(`   Prompt length: ${userPrompt.length} characters`);
-                console.log(`   System prompt length: ${this.systemPrompt.length} characters`);
+                const systemPrompt = options.systemPrompt || this.systemPrompt;
+                const maxTokens = options.maxTokens || API_CONFIG.openai.maxTokens;
+                const temperature = options.temperature ?? 0.3;
 
-                const response = await this.client.chat.completions.create({
+                console.log(`🔍 OpenAI request using model: ${this.model} (attempt ${attempt}/${maxRetries})`);
+                console.log(`   Prompt length: ${prompt.length} characters`);
+                console.log(`   System prompt length: ${systemPrompt.length} characters`);
+
+                const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+
+                if (systemPrompt) {
+                    messages.push({
+                        role: 'system',
+                        content: systemPrompt
+                    });
+                }
+
+                messages.push({
+                    role: 'user',
+                    content: prompt
+                });
+
+                const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
                     model: this.model,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: this.systemPrompt
-                        },
-                        {
-                            role: 'user',
-                            content: userPrompt
-                        }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: API_CONFIG.openai.maxTokens
-                }, {
-                    timeout: 120000  // 120 second timeout (increased from 60s)
+                    messages,
+                    temperature,
+                    max_tokens: maxTokens
+                };
+
+                // Force JSON output if requested
+                if (options.parseJson) {
+                    requestOptions.response_format = { type: "json_object" };
+                }
+
+                const response = await this.client.chat.completions.create(requestOptions, {
+                    timeout: 120000  // 120 second timeout
                 });
 
                 const requestDuration = Date.now() - requestStartTime;
@@ -115,7 +133,7 @@ export class OpenAIService implements AIProvider {
                 // Check if response was truncated
                 const finishReason = response.choices[0]?.finish_reason;
                 if (finishReason === 'length') {
-                    console.warn(`⚠️  OpenAI response was truncated (finish_reason: ${finishReason}). This may cause JSON parsing issues.`);
+                    console.warn(`⚠️  OpenAI response was truncated (finish_reason: ${finishReason})`);
                 }
 
                 // Log token usage for cost tracking
@@ -125,33 +143,29 @@ export class OpenAIService implements AIProvider {
                     console.log(`💰 Token usage: ${usage.prompt_tokens} input + ${usage.completion_tokens} output = ${usage.total_tokens} total (${modelInfo.model})`);
                 }
 
-                // Split response into text part and JSON part
-                const { textPart, jsonPart, hasValidJson } = splitResponseIntoParts(content, context.agentRole || 'openai', context.timestamp || Date.now());
+                // Parse JSON if requested
+                let textPart: string | undefined;
+                let jsonPart: any | undefined;
 
-                // Parse claims from JSON part or text if JSON parsing failed
-                let claims;
-                if (hasValidJson) {
-                    claims = extractClaimsFromJSON(jsonPart, {
-                        ...context,
-                        timestamp: context.timestamp,
-                        requestId
-                    });
-                } else {
-                    // Fallback: extract claims from text (for sentiment agent)
-                    claims = extractClaimsFromText(textPart, {
-                        ...context,
-                        timestamp: context.timestamp,
-                        requestId
-                    });
+                if (options.parseJson) {
+                    const parsed = splitResponseIntoParts(content, 'openai', Date.now());
+                    textPart = parsed.textPart;
+                    if (parsed.hasValidJson) {
+                        jsonPart = parsed.jsonPart;
+                    }
                 }
 
-                // Success! Return immediately
                 console.log(`✅ OpenAI request successful on attempt ${attempt}`);
+
                 return {
-                    claims,
-                    openaiResponse: content,
+                    response: content,
                     textPart,
-                    jsonPart
+                    jsonPart,
+                    metadata: {
+                        model: this.model,
+                        tokensUsed: usage?.total_tokens,
+                        finishReason
+                    }
                 };
 
             } catch (error: any) {
@@ -180,62 +194,11 @@ export class OpenAIService implements AIProvider {
                 }
 
                 // Not retryable or max retries reached
-                throw new Error(`Failed to generate claims: ${error}`);
+                throw new Error(`Failed to generate response: ${error}`);
             }
         }
 
         // Should never reach here, but TypeScript needs it
-        throw new Error(`Failed to generate claims after ${maxRetries} attempts: ${lastError}`);
-    }
-
-    // Backward compatibility method
-    async generateClaims(
-        userPrompt: string,
-        context: any
-    ): Promise<Claim[]> {
-        const result = await this.generateClaimsWithReasoning(userPrompt, context);
-        return result.claims;
-    }
-
-    // Simple response generation for summaries
-    async generateResponse(
-        prompt: string,
-        options: { maxTokens?: number; temperature?: number } = {}
-    ): Promise<string> {
-        try {
-            console.log(`🔍 Generating simple response using model: ${this.model}`);
-
-            const response = await this.client.chat.completions.create({
-                model: this.model,
-                messages: [
-                    {
-                        role: 'user',
-                        content: prompt.toLowerCase().includes('json')
-                            ? prompt
-                            : `${prompt}\n\nProvide your response in JSON format.`
-                    }
-                ],
-                temperature: options.temperature || 0.3,
-                max_tokens: options.maxTokens || 500,
-                response_format: { type: "json_object" } // Force JSON output for PortfolioAgent
-            });
-
-            const content = response.choices[0]?.message?.content;
-            if (!content) {
-                throw new Error('No content received from OpenAI');
-            }
-
-            // Log token usage for cost tracking
-            const usage = response.usage;
-            if (usage) {
-                const modelInfo = this.getModelInfo();
-                console.log(`💰 Simple response tokens: ${usage.prompt_tokens} + ${usage.completion_tokens} = ${usage.total_tokens} (${modelInfo.model})`);
-            }
-
-            return content;
-        } catch (error) {
-            console.error('OpenAI API error:', error);
-            throw new Error(`Failed to generate response: ${error}`);
-        }
+        throw new Error(`Failed to generate response after ${maxRetries} attempts: ${lastError}`);
     }
 }
