@@ -351,31 +351,28 @@ export class PolymarketDataService {
 
     /**
      * Получение статистики по ликвидности рынков
+     * Возвращает только количество рынков с/без ликвидности
+     * Для детальной статистики используйте MarketFilter.getEnrichedMarketStats()
      */
-    async getLiquidityStats(markets: Market[]): Promise<{
+    async getLiquidityStats(markets: Market[], minLiquidity: number = 100): Promise<{
         total: number;
         withLiquidity: number;
         withoutLiquidity: number;
-        avgLiquidity: number;
-        maxLiquidity: number;
     }> {
-        const liquidityMap = await this.checkLiquidityBatch(markets);
+        const liquidityMap = await this.checkLiquidityBatch(markets, minLiquidity);
 
         let withLiquidity = 0;
 
         for (const [_, hasLiq] of liquidityMap) {
             if (hasLiq) {
                 withLiquidity++;
-                // TODO: можно добавить получение точных значений
             }
         }
 
         return {
             total: markets.length,
             withLiquidity,
-            withoutLiquidity: markets.length - withLiquidity,
-            avgLiquidity: 0, // TODO
-            maxLiquidity: 0  // TODO
+            withoutLiquidity: markets.length - withLiquidity
         };
     }
 }
