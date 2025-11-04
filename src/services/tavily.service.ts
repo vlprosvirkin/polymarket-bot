@@ -29,9 +29,16 @@ export interface TavilySearchOptions {
     includeRawContent?: boolean; // Включить сырой контент
 }
 
+interface CacheEntry {
+    response: TavilySearchResponse;
+    timestamp: number;
+}
+
 export class TavilyService {
     private apiKey: string;
     private baseUrl = 'https://api.tavily.com';
+    private cache: Map<string, CacheEntry> = new Map();
+    private readonly cacheTTL = 60 * 60 * 1000; // 1 hour in milliseconds
 
     constructor() {
         const apiKey = process.env.TAVILY_API_KEY;
@@ -39,16 +46,109 @@ export class TavilyService {
             throw new Error('TAVILY_API_KEY environment variable is required');
         }
         this.apiKey = apiKey;
+
+        // Периодическая очистка старых записей (каждые 15 минут)
+        setInterval(() => this.cleanupCache(), 15 * 60 * 1000);
     }
+
+    /**
+     * Генерация ключа кэша на основе запроса и опций
+     */
+    private getCacheKey(query: string, options: TavilySearchOptions): string {
+        const normalizedQuery = query.toLowerCase().trim();
+        const optionsKey = JSON.stringify({
+            maxResults: options.maxResults || 5,
+            includeAnswer: options.includeAnswer || false,
+            searchDepth: options.searchDepth || 'basic',
+            includeImages: options.includeImages || false,
+            includeRawContent: options.includeRawContent || false
+        });
+        return `${normalizedQuery}::${optionsKey}`;
+    }
+
+    /**
+     * Получение результата из кэша
+     */
+    private getFromCache(cacheKey: string): TavilySearchResponse | null {
+        const cached = this.cache.get(cacheKey);
+        if (!cached) {
+            return null;
+        }
+
+        const age = Date.now() - cached.timestamp;
+        if (age > this.cacheTTL) {
+            // Запись устарела
+            this.cache.delete(cacheKey);
+            return null;
+        }
+
+        return cached.response;
+    }
+
+    /**
+     * Сохранение результата в кэш
+     */
+    private saveToCache(cacheKey: string, response: TavilySearchResponse): void {
+        this.cache.set(cacheKey, {
+            response,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * Очистка устаревших записей из кэша
+     */
+    private cleanupCache(): void {
+        const now = Date.now();
+        let removed = 0;
+
+        for (const [key, entry] of this.cache.entries()) {
+            if (now - entry.timestamp > this.cacheTTL) {
+                this.cache.delete(key);
+                removed++;
+            }
+        }
+
+        if (removed > 0) {
+            console.log(`🧹 Tavily cache cleanup: removed ${removed} expired entries`);
+        }
+    }
+
+    /**
+     * Получение статистики кэша
+     */
+    getCacheStats(): { size: number; hits: number; misses: number } {
+        return {
+            size: this.cache.size,
+            hits: this.cacheHits,
+            misses: this.cacheMisses
+        };
+    }
+
+    private cacheHits = 0;
+    private cacheMisses = 0;
 
     /**
      * Поиск информации с Tavily
      * Возвращает структурированные результаты, готовые для AI промптов
+     * Использует кэширование для экономии средств (TTL = 1 час)
      */
     async search(
         query: string,
         options: TavilySearchOptions = {}
     ): Promise<TavilySearchResponse> {
+        // Проверяем кэш
+        const cacheKey = this.getCacheKey(query, options);
+        const cached = this.getFromCache(cacheKey);
+
+        if (cached) {
+            this.cacheHits++;
+            console.log(`💾 Tavily: Cache HIT for "${query}" (saved $0.02) [${this.cacheHits}/${this.cacheHits + this.cacheMisses}]`);
+            return cached;
+        }
+
+        this.cacheMisses++;
+
         try {
             const params: Record<string, string | number | boolean> = {
                 api_key: this.apiKey,
@@ -60,7 +160,7 @@ export class TavilyService {
                 include_raw_content: options.includeRawContent || false
             };
 
-            console.log(`🔍 Tavily: Searching "${query}" (depth: ${options.searchDepth || 'basic'})...`);
+            console.log(`🔍 Tavily: Searching "${query}" (depth: ${options.searchDepth || 'basic'}) [${this.cacheHits}/${this.cacheHits + this.cacheMisses}]...`);
 
             const response = await axios.post<TavilyAPIResponse>(`${this.baseUrl}/search`, params);
             const data = response.data;
@@ -75,12 +175,17 @@ export class TavilyService {
 
             console.log(`✅ Tavily: Found ${results.length} results (response time: ${data.response_time || 0}ms)`);
 
-            return {
+            const result = {
                 query: data.query || query,
                 responseTime: data.response_time || 0,
                 results,
                 answer: data.answer || undefined
             };
+
+            // Сохраняем в кэш
+            this.saveToCache(cacheKey, result);
+
+            return result;
 
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : String(error);

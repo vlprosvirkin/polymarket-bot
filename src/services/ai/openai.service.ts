@@ -2,11 +2,13 @@ import OpenAI from 'openai';
 import type { AIProvider, AIProviderResponse } from '../../types/ai-provider';
 import { splitResponseIntoParts } from '../../utils/json-parsing-utils';
 import { API_CONFIG } from '../../core/config';
+import { createLogger } from '../../utils/logger';
 
 export class OpenAIService implements AIProvider {
     private client: OpenAI;
     private model: string;
     private systemPrompt: string;
+    private logger = createLogger('OpenAIService');
 
     constructor(systemPrompt: string) {
         const apiKey = process.env.OPENAI_API_KEY;
@@ -21,7 +23,7 @@ export class OpenAIService implements AIProvider {
         this.systemPrompt = systemPrompt;
         // Model selection based on environment
         this.model = this.selectModel();
-        console.log(`🤖 OpenAI Service initialized with model: ${this.model}`);
+        this.logger.info('Service initialized', { model: this.model });
     }
 
     /**
@@ -88,9 +90,15 @@ export class OpenAIService implements AIProvider {
                 const maxTokens = options.maxTokens || API_CONFIG.openai.maxTokens;
                 const temperature = options.temperature ?? 0.3;
 
-                console.log(`🔍 OpenAI request using model: ${this.model} (attempt ${attempt}/${maxRetries})`);
-                console.log(`   Prompt length: ${prompt.length} characters`);
-                console.log(`   System prompt length: ${systemPrompt.length} characters`);
+                this.logger.info('Sending request', {
+                    model: this.model,
+                    attempt: attempt,
+                    maxRetries: maxRetries,
+                    promptLength: prompt.length,
+                    systemPromptLength: systemPrompt.length,
+                    temperature: temperature,
+                    maxTokens: maxTokens
+                });
 
                 const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
@@ -123,8 +131,6 @@ export class OpenAIService implements AIProvider {
                 });
 
                 const requestDuration = Date.now() - requestStartTime;
-                console.log(`⏱️  OpenAI request completed in ${requestDuration}ms`);
-
                 const content = response.choices[0]?.message?.content;
                 if (!content) {
                     throw new Error('No content received from OpenAI');
@@ -133,14 +139,19 @@ export class OpenAIService implements AIProvider {
                 // Check if response was truncated
                 const finishReason = response.choices[0]?.finish_reason;
                 if (finishReason === 'length') {
-                    console.warn(`⚠️  OpenAI response was truncated (finish_reason: ${finishReason})`);
+                    this.logger.warn('Response was truncated', { finishReason: finishReason });
                 }
 
                 // Log token usage for cost tracking
                 const usage = response.usage;
                 if (usage) {
-                    const modelInfo = this.getModelInfo();
-                    console.log(`💰 Token usage: ${usage.prompt_tokens} input + ${usage.completion_tokens} output = ${usage.total_tokens} total (${modelInfo.model})`);
+                    this.logger.info('Request completed', {
+                        durationMs: requestDuration,
+                        promptTokens: usage.prompt_tokens,
+                        completionTokens: usage.completion_tokens,
+                        totalTokens: usage.total_tokens,
+                        finishReason: finishReason
+                    });
                 }
 
                 // Parse JSON if requested
@@ -154,8 +165,6 @@ export class OpenAIService implements AIProvider {
                         jsonPart = parsed.jsonPart;
                     }
                 }
-
-                console.log(`✅ OpenAI request successful on attempt ${attempt}`);
 
                 return {
                     response: content,
@@ -188,17 +197,17 @@ export class OpenAIService implements AIProvider {
                     errorStatus === 500 || // Server error
                     errorStatus === 503;   // Service unavailable
 
-                const errorObj = error instanceof Error ? error : { message: String(error) };
-                console.error(`❌ OpenAI API error (attempt ${attempt}/${maxRetries}):`, {
-                    message: errorObj.message,
+                this.logger.error('API request failed', error, {
+                    attempt: attempt,
+                    maxRetries: maxRetries,
                     status: apiError.status,
                     code: apiError.code,
-                    isRetryable
+                    isRetryable: isRetryable
                 });
 
                 if (isRetryable && attempt < maxRetries) {
                     const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff: 1s, 2s, 4s
-                    console.log(`⏳ Retrying in ${delay}ms...`);
+                    this.logger.info('Retrying request', { delayMs: delay, nextAttempt: attempt + 1 });
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }

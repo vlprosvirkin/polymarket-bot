@@ -111,8 +111,16 @@ Your task is to analyze Polymarket prediction markets and determine whether they
   "recommendedAction": "BUY_YES|BUY_NO|AVOID"
 }
 
-**IMPORTANT:** Provide "estimatedProbability" - your numerical estimate (0-1) of how likely the event is to occur. 
-This will be compared with the market price to find mispricing opportunities (edge).
+**CRITICAL REQUIREMENT - estimatedProbability:**
+You MUST provide the "estimatedProbability" field with a numerical value between 0 and 1.
+This is ESSENTIAL for edge detection and trading decisions - without it, the analysis cannot be used.
+
+- If you're highly confident: provide your best estimate (e.g., 0.75 for 75%)
+- If you're uncertain: provide your mid-range estimate (e.g., 0.50 for 50%)
+- NEVER omit this field - it's required for every analysis
+- This value will be compared with the current market price to find trading opportunities (edge)
+
+Example: If market price is 60% (0.60) but you estimate 75% (0.75), that's a +15 percentage point edge.
 
 Be thorough, analytical, and honest about both risks and opportunities.`;
 
@@ -187,7 +195,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             }
 
             // Валидация и нормализация
-            return this.normalizeAnalysis(analysis);
+            return this.normalizeAnalysis(analysis, market);
 
         } catch (error) {
             console.error('❌ AI market analysis failed:', error);
@@ -518,7 +526,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
     /**
      * Нормализация ответа AI
      */
-    private normalizeAnalysis(data: unknown): MarketAnalysis {
+    private normalizeAnalysis(data: unknown, market: Market): MarketAnalysis {
         const typed = data as import('../../types/ai-response').AIMarketAnalysisJSON;
         
         const confidenceValue = typeof typed.confidence === 'string' 
@@ -535,21 +543,40 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             ? Math.max(0, Math.min(1, attractivenessValue || 0.5))
             : 0.5;
 
-        // Извлекаем estimatedProbability
+        // Извлекаем estimatedProbability (КРИТИЧНО для edge detection!)
         const estimatedProbabilityValue = typed.estimatedProbability !== undefined
-            ? (typeof typed.estimatedProbability === 'string' 
+            ? (typeof typed.estimatedProbability === 'string'
                 ? parseFloat(typed.estimatedProbability)
-                : (typeof typed.estimatedProbability === 'number' 
-                    ? typed.estimatedProbability 
+                : (typeof typed.estimatedProbability === 'number'
+                    ? typed.estimatedProbability
                     : undefined))
             : undefined;
-        const estimatedProbability = estimatedProbabilityValue !== undefined
-            ? Math.max(0, Math.min(1, estimatedProbabilityValue))
-            : undefined;
 
-        return {
-            shouldTrade: typeof typed.shouldTrade === 'boolean' 
-                ? typed.shouldTrade 
+        let estimatedProbability: number | undefined;
+
+        if (estimatedProbabilityValue !== undefined) {
+            // Валидация: вероятность должна быть в диапазоне [0, 1]
+            estimatedProbability = Math.max(0, Math.min(1, estimatedProbabilityValue));
+
+            // Предупреждение о крайних значениях
+            if (estimatedProbability >= 0.99) {
+                console.warn(`⚠️  AI returned very high probability: ${estimatedProbability} - might be overconfident`);
+            } else if (estimatedProbability <= 0.01) {
+                console.warn(`⚠️  AI returned very low probability: ${estimatedProbability} - might be overconfident`);
+            }
+        } else {
+            // КРИТИЧЕСКАЯ ОШИБКА: estimatedProbability отсутствует!
+            console.error('❌ CRITICAL: AI did not provide estimatedProbability field!');
+            console.error('   This is required for edge detection. Setting to undefined - edge detection will be skipped.');
+            console.error('   AI response keys:', Object.keys(typed));
+
+            // Fallback: undefined (edge detection не сработает, но анализ продолжится)
+            estimatedProbability = undefined;
+        }
+
+        const analysis = {
+            shouldTrade: typeof typed.shouldTrade === 'boolean'
+                ? typed.shouldTrade
                 : Boolean(typed.shouldTrade),
             confidence,
             reasoning: typed.reasoning || typed.reason || 'No reasoning provided',
@@ -568,6 +595,26 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                 ? typed.recommendedAction as 'BUY_YES' | 'BUY_NO' | 'AVOID'
                 : undefined
         };
+
+        // Validate logic consistency between estimatedProbability and recommendedAction
+        if (estimatedProbability !== undefined && analysis.recommendedAction && analysis.recommendedAction !== 'AVOID') {
+            const yesToken = market.tokens.find((t: { outcome: string }) => t.outcome === 'Yes');
+            const marketPrice = yesToken?.price ?? 0.5;
+
+            // For BUY_YES: AI estimate should be higher than market price
+            if (analysis.recommendedAction === 'BUY_YES' && estimatedProbability <= marketPrice) {
+                console.warn(`⚠️  Logic inconsistency: recommendedAction=BUY_YES but estimatedProbability=${estimatedProbability.toFixed(3)} <= marketPrice=${marketPrice.toFixed(3)}`);
+                console.warn('   Expected: estimatedProbability > marketPrice for BUY_YES recommendation');
+            }
+
+            // For BUY_NO: AI estimate should be lower than market price
+            if (analysis.recommendedAction === 'BUY_NO' && estimatedProbability >= marketPrice) {
+                console.warn(`⚠️  Logic inconsistency: recommendedAction=BUY_NO but estimatedProbability=${estimatedProbability.toFixed(3)} >= marketPrice=${marketPrice.toFixed(3)}`);
+                console.warn('   Expected: estimatedProbability < marketPrice for BUY_NO recommendation');
+            }
+        }
+
+        return analysis;
     }
 
     /**
