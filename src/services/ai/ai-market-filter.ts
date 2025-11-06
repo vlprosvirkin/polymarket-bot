@@ -107,8 +107,7 @@ Your task is to analyze Polymarket prediction markets and determine whether they
   "estimatedProbability": 0.0-1.0,  // YOUR estimate of the event's probability (e.g., 0.75 = 75% chance)
   "riskLevel": "low|medium|high",
   "riskFactors": ["risk1", "risk2"],
-  "opportunities": ["opportunity1", "opportunity2"],
-  "recommendedAction": "BUY_YES|BUY_NO|AVOID"
+  "opportunities": ["opportunity1", "opportunity2"]
 }
 
 **CRITICAL REQUIREMENT - estimatedProbability:**
@@ -121,6 +120,10 @@ This is ESSENTIAL for edge detection and trading decisions - without it, the ana
 - This value will be compared with the current market price to find trading opportunities (edge)
 
 Example: If market price is 60% (0.60) but you estimate 75% (0.75), that's a +15 percentage point edge.
+
+**IMPORTANT:**
+- You do NOT need to provide "recommendedAction" - the system will automatically calculate it based on your estimatedProbability
+- Focus on giving accurate probability estimates, and the trading logic will handle the rest
 
 Be thorough, analytical, and honest about both risks and opportunities.`;
 
@@ -581,7 +584,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             confidence,
             reasoning: typed.reasoning || typed.reason || 'No reasoning provided',
             attractiveness,
-            estimatedProbability, // Оценка вероятности от AI
+            estimatedProbability, // Оценка вероятности от AI (единственный источник рекомендаций)
             riskLevel: (typeof typed.riskLevel === 'string' && ['low', 'medium', 'high'].includes(typed.riskLevel))
                 ? typed.riskLevel as 'low' | 'medium' | 'high'
                 : 'medium',
@@ -591,30 +594,50 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             opportunities: Array.isArray(typed.opportunities)
                 ? typed.opportunities as string[]
                 : (typed.opportunities ? [String(typed.opportunities)] : []),
-            recommendedAction: (typeof typed.recommendedAction === 'string' && ['BUY_YES', 'BUY_NO', 'AVOID'].includes(typed.recommendedAction))
-                ? typed.recommendedAction as 'BUY_YES' | 'BUY_NO' | 'AVOID'
-                : undefined
+            // recommendedAction теперь рассчитывается в сервисном слое (AIStrategy)
+            // на основе сравнения estimatedProbability с marketPrice
+            recommendedAction: this.calculateRecommendedAction(estimatedProbability, market)
         };
 
-        // Validate logic consistency between estimatedProbability and recommendedAction
-        if (estimatedProbability !== undefined && analysis.recommendedAction && analysis.recommendedAction !== 'AVOID') {
-            const yesToken = market.tokens.find((t: { outcome: string }) => t.outcome === 'Yes');
-            const marketPrice = yesToken?.price ?? 0.5;
+        return analysis;
+    }
 
-            // For BUY_YES: AI estimate should be higher than market price
-            if (analysis.recommendedAction === 'BUY_YES' && estimatedProbability <= marketPrice) {
-                console.warn(`⚠️  Logic inconsistency: recommendedAction=BUY_YES but estimatedProbability=${estimatedProbability.toFixed(3)} <= marketPrice=${marketPrice.toFixed(3)}`);
-                console.warn('   Expected: estimatedProbability > marketPrice for BUY_YES recommendation');
-            }
-
-            // For BUY_NO: AI estimate should be lower than market price
-            if (analysis.recommendedAction === 'BUY_NO' && estimatedProbability >= marketPrice) {
-                console.warn(`⚠️  Logic inconsistency: recommendedAction=BUY_NO but estimatedProbability=${estimatedProbability.toFixed(3)} >= marketPrice=${marketPrice.toFixed(3)}`);
-                console.warn('   Expected: estimatedProbability < marketPrice for BUY_NO recommendation');
-            }
+    /**
+     * Рассчитывает recommendedAction на основе estimatedProbability и marketPrice
+     * Это единственный источник правды для рекомендаций - AI больше не делает эту логику
+     */
+    private calculateRecommendedAction(
+        estimatedProbability: number | undefined,
+        market: Market
+    ): 'BUY_YES' | 'BUY_NO' | 'AVOID' | undefined {
+        if (estimatedProbability === undefined) {
+            return undefined;
         }
 
-        return analysis;
+        const yesToken = market.tokens.find((t: { outcome: string }) => t.outcome === 'Yes');
+        const marketPrice = yesToken?.price ?? 0.5;
+
+        // Минимальный edge для входа (10 процентных пунктов = 0.10)
+        const minEdge = 0.10;
+        const edge = Math.abs(estimatedProbability - marketPrice);
+
+        // Если edge недостаточен - избегаем
+        if (edge < minEdge) {
+            return 'AVOID';
+        }
+
+        // BUY_YES: если AI оценивает YES выше, чем рынок
+        if (estimatedProbability > marketPrice) {
+            return 'BUY_YES';
+        }
+
+        // BUY_NO: если AI оценивает YES ниже, чем рынок (значит NO недооценен)
+        if (estimatedProbability < marketPrice) {
+            return 'BUY_NO';
+        }
+
+        // Равны или слишком близко
+        return 'AVOID';
     }
 
     /**

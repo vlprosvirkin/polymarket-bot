@@ -159,6 +159,8 @@
     "test:ai-probability": "ts-node src/test/test-ai-probability-edge.ts",
     "test:market-filter": "ts-node src/test/test-market-filter.ts",
     "test:enriched-filter": "ts-node src/test/test-enriched-filter.ts",
+    "test:midpoint": "ts-node src/test/test-midpoint-typing.ts",
+    "test:ai-prompt-fix": "ts-node src/test/test-ai-prompt-fix.ts",
     "positions": "ts-node scripts/check-positions.ts",
     "verify": "ts-node scripts/verify-setup.ts",
     "check-balance": "ts-node scripts/check-balance.ts",
