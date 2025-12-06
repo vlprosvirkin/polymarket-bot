@@ -27,11 +27,11 @@ class Logger {
     }
 
     debug(message: string, context?: LogContext): void {
-        console.log(this.formatMessage(LogLevel.DEBUG, message, context));
+        console.warn(this.formatMessage(LogLevel.DEBUG, message, context));
     }
 
     info(message: string, context?: LogContext): void {
-        console.log(this.formatMessage(LogLevel.INFO, message, context));
+        console.warn(this.formatMessage(LogLevel.INFO, message, context));
     }
 
     warn(message: string, context?: LogContext): void {

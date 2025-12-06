@@ -337,6 +337,156 @@ const options: swaggerJsdoc.Options = {
                     },
                 },
             },
+            '/api/positions/status': {
+                get: {
+                    tags: ['Positions'],
+                    summary: 'Получить статус позиций и рынков',
+                    description: 'Возвращает полную информацию о позициях, ставках, рынках и их разрешении. Включает информацию о выигрышных/проигрышных позициях.',
+                    responses: {
+                        '200': {
+                            description: 'Статус позиций и рынков',
+                            content: {
+                                'application/json': {
+                                    schema: {
+                                        type: 'object',
+                                        properties: {
+                                            success: { type: 'boolean' },
+                                            positions: {
+                                                type: 'array',
+                                                description: 'Список позиций с информацией о результатах',
+                                                items: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        tokenId: { type: 'string' },
+                                                        conditionId: { type: 'string' },
+                                                        marketQuestion: { type: 'string' },
+                                                        outcome: { type: 'string', enum: ['Yes', 'No', 'Unknown'] },
+                                                        side: { type: 'string', enum: ['BUY', 'SELL'] },
+                                                        size: { type: 'number' },
+                                                        avgPrice: { type: 'number' },
+                                                        currentPrice: { type: 'number' },
+                                                        isResolved: { type: 'boolean' },
+                                                        winner: { type: 'string', enum: ['Yes', 'No'] },
+                                                        result: { type: 'string', enum: ['win', 'loss', 'pending', 'unknown'] },
+                                                        marketUrl: { type: 'string' },
+                                                        pnl: { type: 'number' },
+                                                        pnlPercent: { type: 'number' },
+                                                    },
+                                                },
+                                            },
+                                            markets: {
+                                                type: 'array',
+                                                description: 'Список уникальных рынков',
+                                                items: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        conditionId: { type: 'string' },
+                                                        question: { type: 'string' },
+                                                        category: { type: 'string' },
+                                                        endDate: { type: 'string' },
+                                                        active: { type: 'boolean' },
+                                                        closed: { type: 'boolean' },
+                                                        resolved: { type: 'boolean' },
+                                                        winner: { type: 'string', enum: ['Yes', 'No'] },
+                                                        outcomes: { type: 'array', items: { type: 'string' } },
+                                                        tokens: { type: 'array' },
+                                                        marketUrl: { type: 'string' },
+                                                    },
+                                                },
+                                            },
+                                            summary: {
+                                                type: 'object',
+                                                properties: {
+                                                    totalPositions: { type: 'number' },
+                                                    winningPositions: { type: 'number' },
+                                                    losingPositions: { type: 'number' },
+                                                    pendingPositions: { type: 'number' },
+                                                    totalPnL: { type: 'number' },
+                                                    totalPnLPercent: { type: 'number' },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        '500': {
+                            description: 'Ошибка сервера',
+                            content: {
+                                'application/json': {
+                                    schema: { $ref: '#/components/schemas/Error' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            '/api/positions/status/{tokenId}': {
+                get: {
+                    tags: ['Positions'],
+                    summary: 'Получить статус конкретной позиции',
+                    description: 'Возвращает информацию о конкретной позиции по токену',
+                    parameters: [
+                        {
+                            name: 'tokenId',
+                            in: 'path',
+                            required: true,
+                            schema: { type: 'string' },
+                            description: 'Token ID позиции',
+                        },
+                    ],
+                    responses: {
+                        '200': {
+                            description: 'Информация о позиции',
+                            content: {
+                                'application/json': {
+                                    schema: {
+                                        type: 'object',
+                                        properties: {
+                                            success: { type: 'boolean' },
+                                            position: {
+                                                type: 'object',
+                                                properties: {
+                                                    tokenId: { type: 'string' },
+                                                    conditionId: { type: 'string' },
+                                                    marketQuestion: { type: 'string' },
+                                                    outcome: { type: 'string', enum: ['Yes', 'No', 'Unknown'] },
+                                                    side: { type: 'string', enum: ['BUY', 'SELL'] },
+                                                    size: { type: 'number' },
+                                                    avgPrice: { type: 'number' },
+                                                    currentPrice: { type: 'number' },
+                                                    isResolved: { type: 'boolean' },
+                                                    winner: { type: 'string', enum: ['Yes', 'No'] },
+                                                    result: { type: 'string', enum: ['win', 'loss', 'pending', 'unknown'] },
+                                                    marketUrl: { type: 'string' },
+                                                    pnl: { type: 'number' },
+                                                    pnlPercent: { type: 'number' },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        '404': {
+                            description: 'Позиция не найдена',
+                            content: {
+                                'application/json': {
+                                    schema: { $ref: '#/components/schemas/Error' },
+                                },
+                            },
+                        },
+                        '500': {
+                            description: 'Ошибка сервера',
+                            content: {
+                                'application/json': {
+                                    schema: { $ref: '#/components/schemas/Error' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         },
     },
     apis: [], // Не используем JSDoc комментарии, все в definition

@@ -12,6 +12,7 @@
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
 import { ClobClient } from "@polymarket/clob-client";
+import { Market, MarketToken } from "../types/market";
 
 // Load environment variables
 dotenvConfig({ path: resolve(__dirname, "../../.env") });
@@ -19,52 +20,52 @@ dotenvConfig({ path: resolve(__dirname, "../../.env") });
 // Используем типы из @polymarket/clob-client или наши типы из src/types/market.ts
 
 async function testApiConnection() {
-    console.log("🚀 Starting Polymarket API Connection Test...\n");
+    console.warn("🚀 Starting Polymarket API Connection Test...\n");
 
     // Step 1: Initialize read-only client (no wallet needed for market data)
-    console.log("📡 Step 1: Connecting to Polymarket CLOB API...");
+    console.warn("📡 Step 1: Connecting to Polymarket CLOB API...");
     const host = process.env.CLOB_API_URL || "https://clob.polymarket.com";
     const chainId = parseInt(process.env.CHAIN_ID || "137");
 
     const clobClient = new ClobClient(host, chainId);
-    console.log(`✅ Connected to: ${host} (Chain ID: ${chainId})\n`);
+    console.warn(`✅ Connected to: ${host} (Chain ID: ${chainId})\n`);
 
     // Step 2: Fetch available markets
-    console.log("📊 Step 2: Fetching available markets...");
+    console.warn("📊 Step 2: Fetching available markets...");
     try {
         const marketsResponse = await clobClient.getSamplingMarkets();
         const markets = marketsResponse.data || [];
-        console.log(`✅ Found ${markets.length} markets\n`);
+        console.warn(`✅ Found ${markets.length} markets\n`);
 
         // Display first 5 active markets
-        console.log("🎯 Top 5 Active Markets:");
-        console.log("=" .repeat(80));
+        console.warn("🎯 Top 5 Active Markets:");
+        console.warn("=" .repeat(80));
 
         const activeMarkets = markets
-            .filter((m: any) => m.active && !m.closed)
+            .filter((m: Market) => m.active && !m.closed)
             .slice(0, 5);
 
-        activeMarkets.forEach((market: any, index: number) => {
-            console.log(`\n${index + 1}. ${market.question}`);
-            console.log(`   Condition ID: ${market.condition_id}`);
-            console.log(`   End Date: ${market.end_date_iso}`);
-            console.log(`   Volume: $${parseFloat(market.volume || "0").toLocaleString()}`);
+        activeMarkets.forEach((market: Market, index: number) => {
+            console.warn(`\n${index + 1}. ${market.question}`);
+            console.warn(`   Condition ID: ${market.condition_id}`);
+            console.warn(`   End Date: ${market.end_date_iso}`);
+            console.warn(`   Volume: $${parseFloat(market.volume || "0").toLocaleString()}`);
 
             if (market.tokens && market.tokens.length > 0) {
-                console.log(`   Tokens:`);
-                market.tokens.forEach((token: any) => {
-                    console.log(`      - ${token.outcome}: ${token.token_id.substring(0, 20)}...`);
-                    console.log(`        Current Price: ${(token.price * 100).toFixed(2)}%`);
+                console.warn(`   Tokens:`);
+                market.tokens.forEach((token: MarketToken) => {
+                    console.warn(`      - ${token.outcome}: ${token.token_id.substring(0, 20)}...`);
+                    console.warn(`        Current Price: ${(token.price * 100).toFixed(2)}%`);
                 });
             }
         });
 
-        console.log("\n" + "=".repeat(80));
+        console.warn("\n" + "=".repeat(80));
 
         // Step 3: Get detailed price information for first active market
         if (activeMarkets.length > 0) {
             const firstMarket = activeMarkets[0];
-            console.log(`\n📈 Step 3: Getting detailed prices for: "${firstMarket.question}"`);
+            console.warn(`\n📈 Step 3: Getting detailed prices for: "${firstMarket.question}"`);
 
             if (firstMarket.tokens && firstMarket.tokens.length > 0) {
                 const yesToken = firstMarket.tokens[0];
@@ -75,21 +76,22 @@ async function testApiConnection() {
                     const sellPrice = await clobClient.getPrice(yesToken.token_id, "sell");
                     const midpoint = await clobClient.getMidpoint(yesToken.token_id);
 
-                    console.log(`\n   Token: ${yesToken.outcome}`);
-                    console.log(`   Buy Price:  ${(parseFloat(buyPrice) * 100).toFixed(2)}% (probability to buy YES)`);
-                    console.log(`   Sell Price: ${(parseFloat(sellPrice) * 100).toFixed(2)}% (probability to sell YES)`);
-                    console.log(`   Midpoint:   ${(parseFloat(midpoint) * 100).toFixed(2)}%`);
-                    console.log(`   Spread:     ${((parseFloat(buyPrice) - parseFloat(sellPrice)) * 100).toFixed(2)}%`);
-                } catch (error: any) {
-                    console.log(`   ⚠️  Could not fetch prices: ${error.message}`);
+                    console.warn(`\n   Token: ${yesToken.outcome}`);
+                    console.warn(`   Buy Price:  ${(parseFloat(buyPrice) * 100).toFixed(2)}% (probability to buy YES)`);
+                    console.warn(`   Sell Price: ${(parseFloat(sellPrice) * 100).toFixed(2)}% (probability to sell YES)`);
+                    console.warn(`   Midpoint:   ${(parseFloat(midpoint) * 100).toFixed(2)}%`);
+                    console.warn(`   Spread:     ${((parseFloat(buyPrice) - parseFloat(sellPrice)) * 100).toFixed(2)}%`);
+                } catch (error: unknown) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.warn(`   ⚠️  Could not fetch prices: ${errorMessage}`);
                 }
             }
         }
 
         // Step 4: Demonstrate order placement (COMMENTED OUT FOR SAFETY)
-        console.log(`\n\n💰 Step 4: Order Placement (Demo - NOT EXECUTED)`);
-        console.log("=" .repeat(80));
-        console.log(`
+        console.warn(`\n\n💰 Step 4: Order Placement (Demo - NOT EXECUTED)`);
+        console.warn("=" .repeat(80));
+        console.warn(`
 To place an order, you need to:
 1. Create a .env file with your private key and funder address
 2. Uncomment the placeTestOrder() function below
@@ -102,25 +104,32 @@ Example order code:
 
         return { success: true, markets: activeMarkets };
 
-    } catch (error: any) {
-        console.error(`❌ Error: ${error.message}`);
-        if (error.response) {
-            console.error(`Response status: ${error.response.status}`);
-            console.error(`Response data:`, error.response.data);
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const axiosError = error as { response?: { status?: number; data?: unknown } };
+        
+        console.error(`❌ Error: ${errorMessage}`);
+        if (axiosError.response) {
+            console.error(`Response status: ${axiosError.response.status}`);
+            console.error(`Response data:`, axiosError.response.data);
         }
-        return { success: false, error: error.message };
+        return { success: false, error: errorMessage };
     }
 }
 
-function showOrderExample(market: any) {
+function showOrderExample(market: Market) {
     if (!market || !market.tokens || market.tokens.length === 0) {
-        console.log("No market data available for example");
+        console.warn("No market data available for example");
         return;
     }
 
     const token = market.tokens[0];
+    if (!token) {
+        console.warn("No token data available for example");
+        return;
+    }
 
-    console.log(`
+    console.warn(`
 // Initialize authenticated client
 const wallet = new ethers.Wallet(process.env.PK!);
 const funder = process.env.FUNDER_ADDRESS!;
@@ -145,20 +154,20 @@ const order = await authClient.createAndPostOrder(
     OrderType.GTC  // Good Till Cancelled
 );
 
-console.log("Order placed:", order);
+console.warn("Order placed:", order);
 `);
 }
 
 /*
 // Функция для тестирования размещения ордеров (закомментирована, т.к. не используется в автоматических тестах)
 async function _placeTestOrder() {
-    console.log("\n\n🔐 Step 5: Placing Test Order (AUTHENTICATED)");
-    console.log("=" .repeat(80));
+    console.warn("\n\n🔐 Step 5: Placing Test Order (AUTHENTICATED)");
+    console.warn("=" .repeat(80));
 
     // Check if credentials are available
     if (!process.env.PK || !process.env.FUNDER_ADDRESS) {
-        console.log("⚠️  Skipping order placement: Missing PK or FUNDER_ADDRESS in .env");
-        console.log("   Create a .env file based on .env.example to test order placement");
+        console.warn("⚠️  Skipping order placement: Missing PK or FUNDER_ADDRESS in .env");
+        console.warn("   Create a .env file based on .env.example to test order placement");
         return;
     }
 
@@ -169,13 +178,13 @@ async function _placeTestOrder() {
         const chainId = parseInt(process.env.CHAIN_ID || "137");
         const signatureType = parseInt(process.env.SIGNATURE_TYPE || "1");
 
-        console.log(`Wallet Address: ${await wallet.getAddress()}`);
-        console.log(`Funder Address: ${funder}`);
+        console.warn(`Wallet Address: ${await wallet.getAddress()}`);
+        console.warn(`Funder Address: ${funder}`);
 
         // Create or derive API key
-        console.log("\n🔑 Creating/Deriving API key...");
+        console.warn("\n🔑 Creating/Deriving API key...");
         const creds = await new ClobClient(host, chainId, wallet).createOrDeriveApiKey();
-        console.log("✅ API key obtained");
+        console.warn("✅ API key obtained");
 
         // Initialize authenticated client
         const authClient = new ClobClient(host, chainId, wallet, creds, signatureType, funder);
@@ -186,13 +195,13 @@ async function _placeTestOrder() {
         const activeMarket = markets.find((m: any) => m.active && !m.closed);
 
         if (!activeMarket || !activeMarket.tokens) {
-            console.log("❌ No active market found");
+            console.warn("❌ No active market found");
             return;
         }
 
         const token = activeMarket.tokens[0];
-        console.log(`\n📝 Placing order for: ${activeMarket.question}`);
-        console.log(`Token: ${token.outcome} (${token.token_id.substring(0, 20)}...)`);
+        console.warn(`\n📝 Placing order for: ${activeMarket.question}`);
+        console.warn(`Token: ${token.outcome} (${token.token_id.substring(0, 20)}...)`);
 
         // UNCOMMENT BELOW TO ACTUALLY PLACE AN ORDER
         // const order = await authClient.createAndPostOrder(
@@ -209,11 +218,11 @@ async function _placeTestOrder() {
         //     OrderType.GTC
         // );
         //
-        // console.log("✅ Order placed successfully:");
-        // console.log(order);
+        // console.warn("✅ Order placed successfully:");
+        // console.warn(order);
 
-        console.log("\n⚠️  Order placement code is commented out for safety");
-        console.log("   Uncomment the order placement code above to test");
+        console.warn("\n⚠️  Order placement code is commented out for safety");
+        console.warn("   Uncomment the order placement code above to test");
 
     } catch (error: any) {
         console.error(`❌ Error placing order: ${error.message}`);
@@ -228,12 +237,12 @@ async function _placeTestOrder() {
 testApiConnection()
     .then(async (result) => {
         if (result.success) {
-            console.log("\n\n✅ API Connection Test Completed Successfully!");
+            console.warn("\n\n✅ API Connection Test Completed Successfully!");
 
             // Optionally uncomment to test authenticated order placement
             // await placeTestOrder();
         } else {
-            console.log("\n\n❌ API Connection Test Failed");
+            console.warn("\n\n❌ API Connection Test Failed");
             process.exit(1);
         }
     })

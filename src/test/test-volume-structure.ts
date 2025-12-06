@@ -10,8 +10,8 @@ import { resolve } from "path";
 dotenvConfig({ path: resolve(__dirname, "../../.env") });
 
 async function testVolumeStructure() {
-    console.log("🔍 ПРОВЕРКА СТРУКТУРЫ ДАННЫХ API\n");
-    console.log("=" .repeat(70));
+    console.warn("🔍 ПРОВЕРКА СТРУКТУРЫ ДАННЫХ API\n");
+    console.warn("=" .repeat(70));
 
     const client = new ClobClient(
         process.env.CLOB_API_URL || "https://clob.polymarket.com",
@@ -19,10 +19,10 @@ async function testVolumeStructure() {
     );
 
     try {
-        console.log("\n1️⃣ Получение рынков...");
+        console.warn("\n1️⃣ Получение рынков...");
         const response = await client.getSamplingMarkets();
         const allMarkets = response.data || [];
-        console.log(`   Получено рынков: ${allMarkets.length}`);
+        console.warn(`   Получено рынков: ${allMarkets.length}`);
 
         // Фильтруем рынки 80-99%
         const highProbMarkets = allMarkets.filter((m: any) => {
@@ -31,61 +31,61 @@ async function testVolumeStructure() {
             return yesToken.price >= 0.80 && yesToken.price <= 0.99;
         });
 
-        console.log(`   Рынков с 80-99% вероятностью: ${highProbMarkets.length}`);
+        console.warn(`   Рынков с 80-99% вероятностью: ${highProbMarkets.length}`);
 
         // Берем первые 10 рынков для анализа
         const samplesToCheck = Math.min(10, highProbMarkets.length);
-        console.log(`\n2️⃣ Анализ ${samplesToCheck} рынков (RAW JSON):\n`);
+        console.warn(`\n2️⃣ Анализ ${samplesToCheck} рынков (RAW JSON):\n`);
 
         for (let i = 0; i < samplesToCheck; i++) {
             const market = highProbMarkets[i];
             const yesToken = market.tokens?.find((t: any) => t.outcome === "Yes");
 
-            console.log(`${"─".repeat(70)}`);
-            console.log(`${i + 1}. ${market.question}`);
-            console.log(`${"─".repeat(70)}`);
-            console.log(`Probability: ${(yesToken.price * 100).toFixed(2)}%`);
-            console.log(`\n📊 Volume Fields (RAW):`);
-            console.log(`   market.volume:       ${JSON.stringify(market.volume)}`);
-            console.log(`   market.volume_24hr:  ${JSON.stringify(market.volume_24hr)}`);
-            console.log(`   market.liquidity:    ${JSON.stringify(market.liquidity)}`);
+            console.warn(`${"─".repeat(70)}`);
+            console.warn(`${i + 1}. ${market.question}`);
+            console.warn(`${"─".repeat(70)}`);
+            console.warn(`Probability: ${(yesToken.price * 100).toFixed(2)}%`);
+            console.warn(`\n📊 Volume Fields (RAW):`);
+            console.warn(`   market.volume:       ${JSON.stringify(market.volume)}`);
+            console.warn(`   market.volume_24hr:  ${JSON.stringify(market.volume_24hr)}`);
+            console.warn(`   market.liquidity:    ${JSON.stringify(market.liquidity)}`);
 
             // Проверяем типы
-            console.log(`\n🔢 Data Types:`);
-            console.log(`   typeof volume:       ${typeof market.volume}`);
-            console.log(`   typeof volume_24hr:  ${typeof market.volume_24hr}`);
-            console.log(`   typeof liquidity:    ${typeof market.liquidity}`);
+            console.warn(`\n🔢 Data Types:`);
+            console.warn(`   typeof volume:       ${typeof market.volume}`);
+            console.warn(`   typeof volume_24hr:  ${typeof market.volume_24hr}`);
+            console.warn(`   typeof liquidity:    ${typeof market.liquidity}`);
 
             // Парсим как мы делаем сейчас
             const parsedVolume = parseFloat(market.volume || "0");
             const parsedVolume24hr = parseFloat(market.volume_24hr || "0");
             const parsedLiquidity = parseFloat(market.liquidity || "0");
 
-            console.log(`\n💰 Parsed Values:`);
-            console.log(`   volume:       $${parsedVolume.toLocaleString()}`);
-            console.log(`   volume_24hr:  $${parsedVolume24hr.toLocaleString()}`);
-            console.log(`   liquidity:    $${parsedLiquidity.toLocaleString()}`);
+            console.warn(`\n💰 Parsed Values:`);
+            console.warn(`   volume:       $${parsedVolume.toLocaleString()}`);
+            console.warn(`   volume_24hr:  $${parsedVolume24hr.toLocaleString()}`);
+            console.warn(`   liquidity:    $${parsedLiquidity.toLocaleString()}`);
 
             // Проверяем все поля объекта
-            console.log(`\n🔍 All Market Fields:`);
+            console.warn(`\n🔍 All Market Fields:`);
             const allFields = Object.keys(market);
             const volumeRelated = allFields.filter(f =>
                 f.toLowerCase().includes('volume') ||
                 f.toLowerCase().includes('liquidity') ||
                 f.toLowerCase().includes('trade')
             );
-            console.log(`   Volume-related fields: ${JSON.stringify(volumeRelated)}`);
+            console.warn(`   Volume-related fields: ${JSON.stringify(volumeRelated)}`);
             volumeRelated.forEach(field => {
-                console.log(`      ${field}: ${JSON.stringify(market[field])}`);
+                console.warn(`      ${field}: ${JSON.stringify(market[field])}`);
             });
 
-            console.log("\n");
+            console.warn("\n");
         }
 
         // Статистика по всем рынкам 80-99%
-        console.log(`\n${"=".repeat(70)}`);
-        console.log(`3️⃣ СТАТИСТИКА ПО ВСЕМ РЫНКАМ 80-99%`);
-        console.log(`${"=".repeat(70)}\n`);
+        console.warn(`\n${"=".repeat(70)}`);
+        console.warn(`3️⃣ СТАТИСТИКА ПО ВСЕМ РЫНКАМ 80-99%`);
+        console.warn(`${"=".repeat(70)}\n`);
 
         let withVolume = 0;
         let withVolume24hr = 0;
@@ -113,19 +113,19 @@ async function testVolumeStructure() {
             }
         });
 
-        console.log(`Всего рынков 80-99%: ${highProbMarkets.length}`);
-        console.log(`\nРынков с volume > 0:       ${withVolume} (${((withVolume/highProbMarkets.length)*100).toFixed(1)}%)`);
-        console.log(`   Max volume:              $${maxVolume.toLocaleString()}`);
-        console.log(`\nРынков с volume_24hr > 0:  ${withVolume24hr} (${((withVolume24hr/highProbMarkets.length)*100).toFixed(1)}%)`);
-        console.log(`   Max volume_24hr:         $${maxVolume24hr.toLocaleString()}`);
-        console.log(`\nРынков с liquidity > 0:    ${withLiquidity} (${((withLiquidity/highProbMarkets.length)*100).toFixed(1)}%)`);
-        console.log(`   Max liquidity:           $${maxLiquidity.toLocaleString()}`);
+        console.warn(`Всего рынков 80-99%: ${highProbMarkets.length}`);
+        console.warn(`\nРынков с volume > 0:       ${withVolume} (${((withVolume/highProbMarkets.length)*100).toFixed(1)}%)`);
+        console.warn(`   Max volume:              $${maxVolume.toLocaleString()}`);
+        console.warn(`\nРынков с volume_24hr > 0:  ${withVolume24hr} (${((withVolume24hr/highProbMarkets.length)*100).toFixed(1)}%)`);
+        console.warn(`   Max volume_24hr:         $${maxVolume24hr.toLocaleString()}`);
+        console.warn(`\nРынков с liquidity > 0:    ${withLiquidity} (${((withLiquidity/highProbMarkets.length)*100).toFixed(1)}%)`);
+        console.warn(`   Max liquidity:           $${maxLiquidity.toLocaleString()}`);
 
         // Топ-5 по объему
         if (withVolume > 0 || withVolume24hr > 0) {
-            console.log(`\n${"=".repeat(70)}`);
-            console.log(`4️⃣ ТОП-5 РЫНКОВ ПО ОБЪЕМУ`);
-            console.log(`${"=".repeat(70)}\n`);
+            console.warn(`\n${"=".repeat(70)}`);
+            console.warn(`4️⃣ ТОП-5 РЫНКОВ ПО ОБЪЕМУ`);
+            console.warn(`${"=".repeat(70)}\n`);
 
             const sorted = [...highProbMarkets].sort((a: any, b: any) => {
                 const volA = Math.max(parseFloat(a.volume || "0"), parseFloat(a.volume_24hr || "0"));
@@ -140,21 +140,21 @@ async function testVolumeStructure() {
                 const liq = parseFloat(m.liquidity || "0");
                 const yesToken = m.tokens?.find((t: any) => t.outcome === "Yes");
 
-                console.log(`${i + 1}. ${m.question}`);
-                console.log(`   Probability: ${(yesToken.price * 100).toFixed(2)}%`);
-                console.log(`   Volume:      $${vol.toLocaleString()}`);
-                console.log(`   Volume 24h:  $${vol24.toLocaleString()}`);
-                console.log(`   Liquidity:   $${liq.toLocaleString()}\n`);
+                console.warn(`${i + 1}. ${m.question}`);
+                console.warn(`   Probability: ${(yesToken.price * 100).toFixed(2)}%`);
+                console.warn(`   Volume:      $${vol.toLocaleString()}`);
+                console.warn(`   Volume 24h:  $${vol24.toLocaleString()}`);
+                console.warn(`   Liquidity:   $${liq.toLocaleString()}\n`);
             }
         }
 
         // Проверяем структуру первого рынка полностью
-        console.log(`\n${"=".repeat(70)}`);
-        console.log(`5️⃣ ПОЛНАЯ СТРУКТУРА ПЕРВОГО РЫНКА (для проверки типов)`);
-        console.log(`${"=".repeat(70)}\n`);
+        console.warn(`\n${"=".repeat(70)}`);
+        console.warn(`5️⃣ ПОЛНАЯ СТРУКТУРА ПЕРВОГО РЫНКА (для проверки типов)`);
+        console.warn(`${"=".repeat(70)}\n`);
 
         if (highProbMarkets.length > 0) {
-            console.log(JSON.stringify(highProbMarkets[0], null, 2));
+            console.warn(JSON.stringify(highProbMarkets[0], null, 2));
         }
 
     } catch (error: any) {

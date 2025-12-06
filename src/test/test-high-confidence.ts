@@ -48,15 +48,15 @@ class HighConfidenceTest {
     }
 
     async initialize(): Promise<void> {
-        console.log("🎯 HIGH CONFIDENCE STRATEGY TEST\n");
-        console.log("⚠️  DEMO MODE: Ордера НЕ размещаются\n");
+        console.warn("🎯 HIGH CONFIDENCE STRATEGY TEST\n");
+        console.warn("⚠️  DEMO MODE: Ордера НЕ размещаются\n");
 
         const address = await this.wallet.getAddress();
-        console.log(`👤 Адрес: ${address}`);
-        console.log(`📋 Стратегия: ${this.strategy.name}\n`);
-        console.log(this.strategy.getDescription());
+        console.warn(`👤 Адрес: ${address}`);
+        console.warn(`📋 Стратегия: ${this.strategy.name}\n`);
+        console.warn(this.strategy.getDescription());
 
-        console.log("\n🔑 Получение API ключей...");
+        console.warn("\n🔑 Получение API ключей...");
         const creds = await new ClobClient(
             BOT_CONFIG.host,
             BOT_CONFIG.chainId,
@@ -72,7 +72,7 @@ class HighConfidenceTest {
             process.env.FUNDER_ADDRESS
         );
 
-        console.log("✅ Инициализирован\n");
+        console.warn("✅ Инициализирован\n");
     }
 
     async getTokenPrice(tokenId: string): Promise<number | null> {
@@ -85,38 +85,38 @@ class HighConfidenceTest {
     }
 
     async testStrategy(): Promise<void> {
-        console.log("=".repeat(70));
-        console.log("📊 ПОИСК РЫНКОВ С ВЫСОКОЙ ВЕРОЯТНОСТЬЮ");
-        console.log("=".repeat(70));
+        console.warn("=".repeat(70));
+        console.warn("📊 ПОИСК РЫНКОВ С ВЫСОКОЙ ВЕРОЯТНОСТЬЮ");
+        console.warn("=".repeat(70));
 
         // Получаем все рынки
-        console.log("\n1️⃣ Получение всех рынков...");
+        console.warn("\n1️⃣ Получение всех рынков...");
         const response = await this.client.getSamplingMarkets();
         const allMarkets = response.data || [];
-        console.log(`   Всего рынков: ${allMarkets.length}`);
+        console.warn(`   Всего рынков: ${allMarkets.length}`);
 
         // Считаем сколько рынков с вероятностью > 80%
         const highProbMarkets = allMarkets.filter(m => {
             const yesToken = m.tokens?.find((t: any) => t.outcome === "Yes");
             return yesToken && yesToken.price >= 0.80;
         });
-        console.log(`   С вероятностью >= 80%: ${highProbMarkets.length}`);
+        console.warn(`   С вероятностью >= 80%: ${highProbMarkets.length}`);
 
         // Фильтруем через стратегию
-        console.log("\n2️⃣ Фильтрация через стратегию...");
+        console.warn("\n2️⃣ Фильтрация через стратегию...");
         const filtered = this.strategy.filterMarkets(allMarkets);
-        console.log(`   После фильтрации: ${filtered.length}`);
+        console.warn(`   После фильтрации: ${filtered.length}`);
 
         if (filtered.length === 0) {
-            console.log("\n❌ Нет подходящих рынков");
-            console.log("   Попробуй:");
-            console.log("   - Уменьшить minVolume");
-            console.log("   - Уменьшить minPrice до 0.75");
+            console.warn("\n❌ Нет подходящих рынков");
+            console.warn("   Попробуй:");
+            console.warn("   - Уменьшить minVolume");
+            console.warn("   - Уменьшить minPrice до 0.75");
             return;
         }
 
         // Тестируем на найденных рынках
-        console.log(`\n3️⃣ Топ ${filtered.length} рынков с высокой вероятностью:\n`);
+        console.warn(`\n3️⃣ Топ ${filtered.length} рынков с высокой вероятностью:\n`);
 
         for (let i = 0; i < filtered.length; i++) {
             const market = filtered[i];
@@ -124,15 +124,15 @@ class HighConfidenceTest {
             await this.testMarket(market, i + 1);
         }
 
-        console.log("\n" + "=".repeat(70));
-        console.log("✅ ТЕСТ ЗАВЕРШЕН");
-        console.log("=".repeat(70));
+        console.warn("\n" + "=".repeat(70));
+        console.warn("✅ ТЕСТ ЗАВЕРШЕН");
+        console.warn("=".repeat(70));
     }
 
     async testMarket(market: Market, index: number): Promise<void> {
-        console.log(`\n${"─".repeat(70)}`);
-        console.log(`🎯 Рынок ${index}: ${market.question}`);
-        console.log(`${"─".repeat(70)}`);
+        console.warn(`\n${"─".repeat(70)}`);
+        console.warn(`🎯 Рынок ${index}: ${market.question}`);
+        console.warn(`${"─".repeat(70)}`);
 
         const yesToken = market.tokens.find(t => t.outcome === "Yes");
         const noToken = market.tokens.find(t => t.outcome === "No");
@@ -143,20 +143,20 @@ class HighConfidenceTest {
         const noPrice = await this.getTokenPrice(noToken.token_id);
 
         if (!yesPrice || !noPrice) {
-            console.log("   ❌ Не удалось получить цены");
+            console.warn("   ❌ Не удалось получить цены");
             return;
         }
 
-        console.log(`\n💰 Цены:`);
-        console.log(`   YES: ${(yesPrice * 100).toFixed(2)}%`);
-        console.log(`   NO:  ${(noPrice * 100).toFixed(2)}%`);
-        console.log(`\n📊 Рынок:`);
-        console.log(`   Объем: $${parseFloat(market.volume || "0").toLocaleString()}`);
-        console.log(`   Min order: ${market.minimum_order_size}`);
+        console.warn(`\n💰 Цены:`);
+        console.warn(`   YES: ${(yesPrice * 100).toFixed(2)}%`);
+        console.warn(`   NO:  ${(noPrice * 100).toFixed(2)}%`);
+        console.warn(`\n📊 Рынок:`);
+        console.warn(`   Объем: $${parseFloat(market.volume || "0").toLocaleString()}`);
+        console.warn(`   Min order: ${market.minimum_order_size}`);
 
         // Генерируем сигналы
         const signals = this.strategy.generateSignals(market, yesPrice);
-        console.log(`\n📈 Сигналов: ${signals.length}`);
+        console.warn(`\n📈 Сигналов: ${signals.length}`);
 
         let totalCost = 0;
         for (const signal of signals) {
@@ -164,15 +164,15 @@ class HighConfidenceTest {
             const cost = signal.size * signal.price;
             totalCost += cost;
 
-            console.log(`\n   ${valid ? '✅' : '❌'} ${signal.side} ${signal.tokenId.slice(0, 8)}...`);
-            console.log(`      Токен: ${market.tokens.find(t => t.token_id === signal.tokenId)?.outcome}`);
-            console.log(`      Размер: ${signal.size} @ ${(signal.price * 100).toFixed(2)}%`);
-            console.log(`      Стоимость: ~${cost.toFixed(2)} USDC`);
-            console.log(`      ${signal.reason}`);
+            console.warn(`\n   ${valid ? '✅' : '❌'} ${signal.side} ${signal.tokenId.slice(0, 8)}...`);
+            console.warn(`      Токен: ${market.tokens.find(t => t.token_id === signal.tokenId)?.outcome}`);
+            console.warn(`      Размер: ${signal.size} @ ${(signal.price * 100).toFixed(2)}%`);
+            console.warn(`      Стоимость: ~${cost.toFixed(2)} USDC`);
+            console.warn(`      ${signal.reason}`);
         }
 
         if (signals.length > 0) {
-            console.log(`\n💵 Общая стоимость входа: ~${totalCost.toFixed(2)} USDC`);
+            console.warn(`\n💵 Общая стоимость входа: ~${totalCost.toFixed(2)} USDC`);
 
             // Симулируем позицию
             const yesSignal = signals.find(s => market.tokens.find(t => t.token_id === s.tokenId && t.outcome === "Yes"));
@@ -190,10 +190,10 @@ class HighConfidenceTest {
                 const pnl = this.strategy.calculatePnL(testPosition, targetPrice);
                 const shouldClose = this.strategy.shouldClosePosition(market, testPosition, targetPrice);
 
-                console.log(`\n📊 Симуляция при росте до 95%:`);
-                console.log(`   P&L: ${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USDC`);
-                console.log(`   ROI: ${((pnl / (yesSignal.size * yesSignal.price)) * 100).toFixed(2)}%`);
-                console.log(`   Закрыть?: ${shouldClose ? '✅ ДА (достигнут profitThreshold)' : '❌ НЕТ'}`);
+                console.warn(`\n📊 Симуляция при росте до 95%:`);
+                console.warn(`   P&L: ${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USDC`);
+                console.warn(`   ROI: ${((pnl / (yesSignal.size * yesSignal.price)) * 100).toFixed(2)}%`);
+                console.warn(`   Закрыть?: ${shouldClose ? '✅ ДА (достигнут profitThreshold)' : '❌ НЕТ'}`);
             }
         }
     }

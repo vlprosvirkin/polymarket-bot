@@ -39,6 +39,7 @@ export class TavilyService {
     private baseUrl = 'https://api.tavily.com';
     private cache: Map<string, CacheEntry> = new Map();
     private readonly cacheTTL = 60 * 60 * 1000; // 1 hour in milliseconds
+    private cleanupInterval?: NodeJS.Timeout;
 
     constructor() {
         const apiKey = process.env.TAVILY_API_KEY;
@@ -48,7 +49,18 @@ export class TavilyService {
         this.apiKey = apiKey;
 
         // Периодическая очистка старых записей (каждые 15 минут)
-        setInterval(() => this.cleanupCache(), 15 * 60 * 1000);
+        this.cleanupInterval = setInterval(() => this.cleanupCache(), 15 * 60 * 1000);
+    }
+
+    /**
+     * Остановка периодической очистки кэша
+     */
+    destroy(): void {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = undefined;
+        }
+        this.cache.clear();
     }
 
     /**

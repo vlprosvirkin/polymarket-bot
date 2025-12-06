@@ -7,17 +7,22 @@ import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import { ClobClient } from '@polymarket/clob-client';
 import { createPositionsRoutes } from './routes/positions.routes';
+import { createMarketsRoutes } from './routes/markets.routes';
+import { createTelegramRoutes } from './routes/telegram.routes';
+import { TelegramBot } from '../services/TelegramBot';
 import { swaggerSpec } from './swagger';
 
 export class ApiServer {
     private app: Express;
     private port: number;
     private client: ClobClient;
+    private telegramBot?: TelegramBot;
 
-    constructor(client: ClobClient, port: number = 3000) {
+    constructor(client: ClobClient, port: number = 3000, telegramBot?: TelegramBot) {
         this.app = express();
         this.port = port;
         this.client = client;
+        this.telegramBot = telegramBot;
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -55,15 +60,27 @@ export class ApiServer {
                 documentation: `http://localhost:${this.port}/api-docs`,
                 endpoints: {
                     health: 'GET /health',
+                    markets: {
+                        analyze: 'GET /api/markets/analyze?limit=100',
+                        filter: 'POST /api/markets/filter',
+                        details: 'GET /api/markets/:conditionId',
+                        aiAnalysis: 'POST /api/markets/:conditionId/ai-analysis'
+                    },
                     positions: {
                         orders: 'GET /api/positions/orders',
+                        ordersAll: 'GET /api/positions/orders/all?status=all',
+                        orderStatus: 'GET /api/positions/orders/:orderId',
+                        createOrder: 'POST /api/positions/create-order',
                         trades: 'GET /api/positions/trades?limit=20',
                         active: 'GET /api/positions/active',
                         balance: 'GET /api/positions/balance',
                         summary: 'GET /api/positions/summary',
                         cancelOrder: 'DELETE /api/positions/orders/:orderId',
                         cancelAll: 'DELETE /api/positions/orders'
-                    }
+                    },
+                    telegram: this.telegramBot ? {
+                        webhook: 'POST /api/telegram/webhook'
+                    } : undefined
                 }
             });
         });
@@ -71,8 +88,16 @@ export class ApiServer {
         // Swagger documentation
         this.app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+        // Markets routes
+        this.app.use('/api/markets', createMarketsRoutes(this.client));
+
         // Positions routes
         this.app.use('/api/positions', createPositionsRoutes(this.client));
+
+        // Telegram routes (if telegram bot is configured)
+        if (this.telegramBot) {
+            this.app.use('/api/telegram', createTelegramRoutes(this.telegramBot));
+        }
 
         // 404 handler
         this.app.use((req: Request, res: Response) => {
@@ -99,6 +124,15 @@ export class ApiServer {
             console.log(`📊 Dashboard: http://localhost:${this.port}`);
             console.log(`📋 Positions: http://localhost:${this.port}/api/positions/summary`);
             console.log(`📚 Swagger Docs: http://localhost:${this.port}/api-docs`);
+            
+            if (this.telegramBot) {
+                console.log(`\n📱 Telegram Bot: Active`);
+                console.log(`   Webhook: POST http://localhost:${this.port}/api/telegram/webhook`);
+                console.log(`   Commands: /status, /balance, /positions, /orders, /trades`);
+            } else {
+                console.log(`\n⚠️  Telegram Bot: Not configured`);
+            }
+            
             console.log(`\nPress Ctrl+C to stop\n`);
         });
     }

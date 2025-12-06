@@ -6,7 +6,7 @@
 import { ethers } from "ethers";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
-import { ClobClient, Side, OrderType, AssetType } from "@polymarket/clob-client";
+import { ClobClient, Side, OrderType, AssetType, TickSize } from "@polymarket/clob-client";
 import { getErrorMessage } from "./types/errors";
 // Используем OpenOrder из clob-client вместо нашего типа
 import { EndgameStrategy, EndgameConfig, DEFAULT_ORDER_SIZE } from "./strategies/EndgameStrategy";
@@ -278,7 +278,7 @@ class PolymarketBot {
                     size: signal.size,
                 },
                 {
-                    tickSize: signal.market.minimum_tick_size.toString() as any,
+                    tickSize: signal.market.minimum_tick_size.toString() as TickSize,
                     negRisk: signal.market.neg_risk
                 },
                 OrderType.GTC
@@ -444,7 +444,7 @@ class PolymarketBot {
                 let posIndex = 1;
                 this.positions.forEach((position, _tokenId) => {
                     const marketShort = position.market.length > 60
-                        ? position.market.substring(0, 60) + '...'
+                        ? `${position.market.substring(0, 60)}...`
                         : position.market;
                     const avgPrice = (position.averagePrice * 100).toFixed(2);
                     const cost = (position.size * position.averagePrice).toFixed(2);
@@ -565,17 +565,8 @@ async function main() {
         await bot.initialize();
 
         // Обработка graceful shutdown
-        process.on('SIGINT', () => {
-            console.log('\n\n⚠️  Получен SIGINT (Ctrl+C)');
-            bot.stop();
-            setTimeout(() => process.exit(0), 1000);
-        });
-
-        process.on('SIGTERM', () => {
-            console.log('\n\n⚠️  Получен SIGTERM');
-            bot.stop();
-            setTimeout(() => process.exit(0), 1000);
-        });
+        const { setupGracefulShutdown } = await import('./utils/graceful-shutdown');
+        setupGracefulShutdown(bot);
 
         await bot.run();
 

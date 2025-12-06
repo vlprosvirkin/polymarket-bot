@@ -37,7 +37,7 @@ export function saveResponseToFile(content: string, agentType: string, timestamp
         const jsonMarkdownMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
         if (jsonMarkdownMatch && jsonMarkdownMatch[1]) {
             try {
-                jsonResponse = JSON.parse(jsonMarkdownMatch[1].trim());
+                jsonResponse = JSON.parse(jsonMarkdownMatch[1].trim()) as Record<string, unknown>;
                 // Extract text part (everything before the JSON block)
                 const jsonBlockStart = content.indexOf('```json');
                 textAnalysis = content.substring(0, jsonBlockStart).trim();
@@ -103,7 +103,7 @@ export function saveResponseToFile(content: string, agentType: string, timestamp
         }, 2);
 
         fs.writeFileSync(filepath, jsonString);
-        console.log(`💾 Saved ${agentType} response to: ${filepath}`);
+        console.warn(`💾 Saved ${agentType} response to: ${filepath}`);
 
     } catch (error) {
         console.error('❌ Failed to save response to file:', error);
@@ -178,7 +178,7 @@ export function splitResponseIntoParts(content: string, agentType: string = 'unk
  * Find and parse JSON part in the content
  */
 function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: number } | null {
-    console.log('🔍 Searching for JSON in content length:', content.length);
+    console.warn('🔍 Searching for JSON in content length:', content.length);
 
     // Look for JSON object with "claims" field
     const claimsPattern = /\{\s*"claims"\s*:/;
@@ -186,18 +186,18 @@ function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: numb
 
     if (match) {
         const jsonStart = match.index!;
-        console.log('🔍 Found claims pattern at position:', jsonStart);
+        console.warn('🔍 Found claims pattern at position:', jsonStart);
 
         const jsonEnd = findJSONEnd(content, jsonStart);
-        console.log('🔍 JSON end position:', jsonEnd);
+        console.warn('🔍 JSON end position:', jsonEnd);
 
         if (jsonEnd > jsonStart) {
             const jsonStr = content.substring(jsonStart, jsonEnd);
-            console.log('🔍 Extracted JSON string length:', jsonStr.length);
+            console.warn('🔍 Extracted JSON string length:', jsonStr.length);
 
             try {
                 const jsonPart = JSON.parse(jsonStr);
-                console.log('✅ Successfully parsed JSON');
+                console.warn('✅ Successfully parsed JSON');
                 return { jsonPart, jsonStart };
             } catch (error) {
                 console.warn('❌ Initial JSON parsing failed:', error instanceof Error ? error.message : String(error));
@@ -206,7 +206,7 @@ function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: numb
                 const fixedJson = fixIncompleteJSON(jsonStr);
                 try {
                     const jsonPart = JSON.parse(fixedJson);
-                    console.log('✅ Successfully parsed JSON after fixing');
+                    console.warn('✅ Successfully parsed JSON after fixing');
                     return { jsonPart, jsonStart };
                 } catch (error2) {
                     console.error('❌ Failed to parse JSON even after fixing:', error2 instanceof Error ? error2.message : String(error2));
@@ -216,8 +216,8 @@ function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: numb
                     const claimsArrayMatch = jsonStr.match(/"claims"\s*:\s*\[([\s\S]*?)\]/);
                     if (claimsArrayMatch && claimsArrayMatch[1]) {
                         try {
-                            const claimsArray = JSON.parse('[' + claimsArrayMatch[1] + ']');
-                            console.log('✅ Successfully parsed claims array as fallback');
+                            const claimsArray = JSON.parse(`[${claimsArrayMatch[1]}]`);
+                            console.warn('✅ Successfully parsed claims array as fallback');
                             return {
                                 jsonPart: { claims: claimsArray },
                                 jsonStart
@@ -232,7 +232,7 @@ function findJSONPart(content: string): { jsonPart: UnknownJSON; jsonStart: numb
             console.warn('❌ Invalid JSON end position:', jsonEnd);
         }
     } else {
-        console.log('🔍 No claims pattern found in content');
+        console.warn('🔍 No claims pattern found in content');
     }
 
     return null;
@@ -321,7 +321,7 @@ function findJSONEnd(content: string, startIndex: number): number {
  * Similar to splitResponseIntoParts but searches for portfolio-specific fields
  */
 export function parsePortfolioAgentResponse(llmResponse: string, agentType: string = 'portfolio', timestamp: number = Date.now()): UnknownJSON {
-    console.log('🔍 parsePortfolioAgentResponse: Starting parse, content length:', llmResponse.length);
+    console.warn('🔍 parsePortfolioAgentResponse: Starting parse, content length:', llmResponse.length);
 
     // Clean the content - remove markdown code blocks
     const cleanedContent = llmResponse.trim()
@@ -331,11 +331,11 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
     // First try to parse the entire response as JSON
     try {
         const parsed = JSON.parse(cleanedContent);
-        console.log('✅ Successfully parsed entire response as JSON');
+        console.warn('✅ Successfully parsed entire response as JSON');
         saveResponseToFile(llmResponse, agentType, timestamp, false);
         return parsed;
     } catch (error) {
-        console.log('🔍 Full JSON parse failed, searching for JSON object in response');
+        console.warn('🔍 Full JSON parse failed, searching for JSON object in response');
     }
 
     // Look for JSON object with portfolio-specific fields
@@ -350,18 +350,18 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
         const match = cleanedContent.match(pattern);
         if (match && match.index !== undefined) {
             const jsonStart = match.index;
-            console.log('🔍 Found portfolio pattern at position:', jsonStart);
+            console.warn('🔍 Found portfolio pattern at position:', jsonStart);
 
             const jsonEnd = findJSONEnd(cleanedContent, jsonStart);
-            console.log('🔍 JSON end position:', jsonEnd);
+            console.warn('🔍 JSON end position:', jsonEnd);
 
             if (jsonEnd > jsonStart) {
                 const jsonStr = cleanedContent.substring(jsonStart, jsonEnd);
-                console.log('🔍 Extracted JSON string length:', jsonStr.length);
+                console.warn('🔍 Extracted JSON string length:', jsonStr.length);
 
                 try {
                     const parsed = JSON.parse(jsonStr);
-                    console.log('✅ Successfully parsed portfolio JSON');
+                    console.warn('✅ Successfully parsed portfolio JSON');
                     saveResponseToFile(llmResponse, agentType, timestamp, false);
                     return parsed;
                 } catch (error) {
@@ -371,7 +371,7 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
                     const fixedJson = fixIncompleteJSON(jsonStr);
                     try {
                         const parsed = JSON.parse(fixedJson);
-                        console.log('✅ Successfully parsed JSON after fixing');
+                        console.warn('✅ Successfully parsed JSON after fixing');
                         saveResponseToFile(llmResponse, agentType, timestamp, false);
                         return parsed;
                     } catch (error2) {
@@ -384,7 +384,7 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
     }
 
     // Last resort: try to find any JSON object
-    console.log('🔍 Trying last resort: find any JSON object');
+    console.warn('🔍 Trying last resort: find any JSON object');
     const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
         try {
@@ -392,7 +392,7 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
             const jsonEnd = findJSONEnd(jsonContent, 0);
             const validJson = jsonContent.substring(0, jsonEnd);
             const parsed = JSON.parse(validJson);
-            console.log('✅ Successfully parsed JSON from fallback search');
+            console.warn('✅ Successfully parsed JSON from fallback search');
             saveResponseToFile(llmResponse, agentType, timestamp, false);
             return parsed;
         } catch (error) {
@@ -402,7 +402,7 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
 
     // Save failed response for debugging
     console.error('❌ No valid JSON found in PortfolioAgent response');
-    console.log('Response preview:', llmResponse.substring(0, 300));
+    console.warn('Response preview:', llmResponse.substring(0, 300));
     saveResponseToFile(llmResponse, agentType, timestamp, true);
 
     throw new Error('No valid JSON found in PortfolioAgent response');
@@ -412,7 +412,7 @@ export function parsePortfolioAgentResponse(llmResponse: string, agentType: stri
  * Test JSON parsing with various scenarios
  */
 export function testJSONParsing(): void {
-    console.log('🧪 Testing JSON Parsing Utilities\n');
+    console.warn('🧪 Testing JSON Parsing Utilities\n');
 
     const testCases = [
         {
@@ -495,33 +495,33 @@ No claims to make at this time.`
     ];
 
     for (const testCase of testCases) {
-        console.log(`\n📋 Test: ${testCase.name}`);
-        console.log('─'.repeat(40));
+        console.warn(`\n📋 Test: ${testCase.name}`);
+        console.warn('─'.repeat(40));
 
         try {
             const result = splitResponseIntoParts(testCase.content);
 
-            console.log(`✅ Has valid JSON: ${result.hasValidJson}`);
-            console.log(`📝 Text part length: ${result.textPart.length} chars`);
+            console.warn(`✅ Has valid JSON: ${result.hasValidJson}`);
+            console.warn(`📝 Text part length: ${result.textPart.length} chars`);
 
             if (result.jsonPart && typeof result.jsonPart === 'object' && !Array.isArray(result.jsonPart)) {
-                console.log(`🔧 JSON part keys: ${Object.keys(result.jsonPart).join(', ')}`);
+                console.warn(`🔧 JSON part keys: ${Object.keys(result.jsonPart).join(', ')}`);
             }
 
             if (result.parseErrors.length > 0) {
-                console.log(`⚠️  Parse errors: ${result.parseErrors.join(', ')}`);
+                console.warn(`⚠️  Parse errors: ${result.parseErrors.join(', ')}`);
             }
 
             if (result.jsonPart && typeof result.jsonPart === 'object' && 'claims' in result.jsonPart && Array.isArray(result.jsonPart.claims)) {
-                console.log(`📊 Claims count: ${result.jsonPart.claims.length}`);
+                console.warn(`📊 Claims count: ${result.jsonPart.claims.length}`);
                 result.jsonPart.claims.forEach((claim: UnknownJSON, i: number) => {
                     if (typeof claim === 'object' && claim !== null && !Array.isArray(claim)) {
                         const ticker = 'ticker' in claim ? String(claim.ticker) : 'N/A';
                         const claimText = 'claim' in claim ? String(claim.claim) : 'N/A';
                         const confidence = 'confidence' in claim ? Number(claim.confidence) : 0;
-                        console.log(`   Claim ${i + 1}: ${ticker} - ${claimText} (${(confidence * 100).toFixed(1)}%)`);
+                        console.warn(`   Claim ${i + 1}: ${ticker} - ${claimText} (${(confidence * 100).toFixed(1)}%)`);
                         if ('riskFlags' in claim && Array.isArray(claim.riskFlags)) {
-                            console.log(`   ⚠️  Risk flags: ${claim.riskFlags.join(', ')}`);
+                            console.warn(`   ⚠️  Risk flags: ${claim.riskFlags.join(', ')}`);
                         }
                     }
                 });

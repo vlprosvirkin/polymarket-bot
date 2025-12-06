@@ -9,7 +9,7 @@
 import { ethers } from "ethers";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { ClobClient, Side, OrderType, TickSize } from "@polymarket/clob-client";
 import { getErrorMessage } from "./types/errors";
 import { AIStrategy, AIStrategyConfig } from "./strategies/AIStrategy";
 import {
@@ -18,15 +18,38 @@ import {
     OrderSide,
     TradeSignal
 } from "./types";
+import { TelegramAdapter } from "./adapters/telegram.adapter";
+import { TelegramBot } from "./services/TelegramBot";
+import { initDatabase, PostgresAdapter } from "./database";
 
 dotenvConfig({ path: resolve(__dirname, "../.env") });
 
 import { AI_STRATEGY_CONFIG as AI_CONFIG } from './core/config';
 
+// Типизация для ответа getMidpoint от CLOB API
+interface MidpointResponse {
+    mid?: string;
+    price?: string;
+    midpoint?: string;
+}
+
+// Типизация для ответа getSamplingMarkets от CLOB API
+interface SamplingMarketsResponse {
+    data: Market[];
+    next_cursor?: string;
+}
+
+// Типизация для ответа createAndPostOrder от CLOB API
+interface OrderResponse {
+    success: boolean;
+    orderID?: string;
+    errorMsg?: string;
+}
+
 const STRATEGY_CONFIG: AIStrategyConfig = {
     spread: 0,
-    orderSize: 100,
-    maxPosition: 1000,
+    orderSize: 1,        // БЕЗОПАСНО: $1 за ордер (баланс $2.99)
+    maxPosition: 2,      // БЕЗОПАСНО: максимум $2 на рынок
     profitThreshold: 0.95,
     stopLoss: 0.75,
     // minVolume удален - volume не возвращается API. Для проверки ликвидности используйте PolymarketDataService + MarketFilter.filterEnrichedForTrading
@@ -34,28 +57,28 @@ const STRATEGY_CONFIG: AIStrategyConfig = {
     // Ликвидность = сумма всех ордеров (YES + NO токены)
     // Учитываются оба токена, так как стратегии могут торговать и YES и NO
     minLiquidity: 1000,  // Минимум $1000 общей ликвидности (YES + NO)
-    maxMarkets: 5,
+    maxMarkets: 2,       // БЕЗОПАСНО: максимум 2 рынка одновременно
     excludeNegRisk: true,
-    minPrice: 0.70,
+    minPrice: 0.10,      // Расширен диапазон для большего выбора
     maxPrice: 0.99,
 
     // AI настройки
     useAI: true,
     useNews: !!process.env.SERP_API_KEY,
-    minAIAttractiveness: AI_CONFIG.DEFAULT_MIN_ATTRACTIVENESS,
-    maxAIRisk: AI_CONFIG.DEFAULT_MAX_RISK,
+    minAIAttractiveness: AI_CONFIG.DEFAULT_MIN_ATTRACTIVENESS,  // 50%
+    maxAIRisk: AI_CONFIG.DEFAULT_MAX_RISK,                      // MEDIUM
     useAIForSignals: true,
-    maxMarketsForAI: 50,
+    maxMarketsForAI: 20,  // Уменьшен для экономии бюджета
 
     // Контроль бюджета AI
-    maxAIBudgetPerCycle: 0.5,   // $0.50 макс за цикл
-    maxAIBudgetPerDay: 5.0,      // $5.00 макс за день
+    maxAIBudgetPerCycle: 0.20,   // $0.20 макс за цикл (экономия)
+    maxAIBudgetPerDay: 2.0,      // $2.00 макс за день (экономия)
 
     // Кэширование (5 минут)
     aiCacheTTL: 5 * 60 * 1000,
-    
+
     // Фильтр по edge (разница между AI оценкой и рыночной ценой)
-    minEdgePercentagePoints: 0.10  // Минимум 10 процентных пунктов edge для входа
+    minEdgePercentagePoints: 0.10  // 10 п.п. для большего количества сигналов
 };
 
 const BOT_CONFIG = {
@@ -71,6 +94,8 @@ class PolymarketAIBot {
     private strategy: AIStrategy;
     private isRunning: boolean = false;
     private positions: Map<string, Position> = new Map();
+    private telegramBot?: TelegramBot;
+    private db?: PostgresAdapter;
 
     constructor(strategy: AIStrategy) {
         if (!process.env.PK || !process.env.FUNDER_ADDRESS) {
@@ -84,6 +109,17 @@ class PolymarketAIBot {
 
     async initialize(): Promise<void> {
         console.log("🤖 AI-Powered Polymarket Bot\n");
+
+        // Инициализация базы данных (опционально)
+        if (process.env.DATABASE_URL) {
+            try {
+                console.log("🗄️  Подключение к базе данных...");
+                this.db = await initDatabase();
+                console.log("✅ База данных подключена\n");
+            } catch (error) {
+                console.warn("⚠️  База данных недоступна, продолжаем без неё:", getErrorMessage(error));
+            }
+        }
 
         const address = await this.wallet.getAddress();
         console.log(`👤 Адрес: ${address}`);
@@ -112,6 +148,19 @@ class PolymarketAIBot {
         // Передаем client в стратегию для работы с обогащенными данными
         this.strategy.setClient(this.client);
 
+        // Инициализация Telegram (опционально)
+        if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+            try {
+                console.log("📱 Инициализация Telegram...");
+                const telegramAdapter = new TelegramAdapter();
+                await telegramAdapter.connect();
+                this.telegramBot = new TelegramBot(telegramAdapter, this.client);
+                console.log("✅ Telegram Bot подключен\n");
+            } catch (error) {
+                console.warn("⚠️  Telegram не настроен или ошибка подключения:", getErrorMessage(error));
+            }
+        }
+
         console.log("✅ Инициализирован\n");
     }
 
@@ -120,8 +169,8 @@ class PolymarketAIBot {
      */
     async getActiveMarkets(): Promise<Market[]> {
         console.log("📡 Получение рынков из API...");
-        const response = await this.client.getSamplingMarkets();
-        const markets = response.data || [];
+        const response = await this.client.getSamplingMarkets() as SamplingMarketsResponse;
+        const markets: Market[] = response.data || [];
         console.log(`✅ Получено ${markets.length} рынков из API`);
 
         // Используем AI фильтрацию (async метод)
@@ -141,11 +190,38 @@ class PolymarketAIBot {
 
     async getTokenPrice(tokenId: string): Promise<number | null> {
         try {
-            const midpoint = await this.client.getMidpoint(tokenId);
-            const price = parseFloat(midpoint);
+            const midpoint: unknown = await this.client.getMidpoint(tokenId);
+
+            // Определяем тип возвращаемого значения
+            let priceStr: string;
+            if (typeof midpoint === 'string') {
+                // Если вернулась строка напрямую
+                priceStr = midpoint;
+            } else if (typeof midpoint === 'object' && midpoint !== null) {
+                // Если вернулся объект, извлекаем из известных полей
+                const response = midpoint as MidpointResponse;
+                priceStr = response.mid || response.price || response.midpoint || '';
+
+                if (!priceStr) {
+                    console.warn(`   ⚠️  Неизвестная структура midpoint: ${JSON.stringify(midpoint)}`);
+                    return null;
+                }
+            } else {
+                priceStr = String(midpoint);
+            }
+
+            const price = parseFloat(priceStr);
+
+            if (isNaN(price)) {
+                console.warn(`   ⚠️  Не удалось распарсить цену из: ${priceStr}`);
+                return null;
+            }
+
             return price;
         } catch (error) {
-            console.warn(`   ⚠️  Не удалось получить цену для токена ${tokenId.substring(0, 20)}...`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.warn(`   ⚠️  Ошибка получения цены для токена ${tokenId.substring(0, 20)}...`);
+            console.warn(`   📋 Error: ${errorMessage}`);
             return null;
         }
     }
@@ -164,14 +240,11 @@ class PolymarketAIBot {
             console.log(`   ⚠️  Не найден YES токен, пропуск`);
             return;
         }
-
-        console.log(`   💰 Получение цены токена...`);
         const currentPrice = await this.getTokenPrice(yesToken.token_id);
         if (!currentPrice) {
             console.log(`   ⚠️  Не удалось получить цену, пропуск`);
             return;
         }
-        console.log(`   ✅ Цена получена: ${(currentPrice * 100).toFixed(2)}%`);
 
         const position = this.positions.get(yesToken.token_id);
 
@@ -218,6 +291,8 @@ class PolymarketAIBot {
      * Исполнение торгового сигнала
      */
     async executeSignal(signal: TradeSignal): Promise<void> {
+        const tokenOutcome = signal.market.tokens.find(t => t.token_id === signal.tokenId)?.outcome || 'Unknown';
+
         try {
             const order = await this.client.createAndPostOrder(
                 {
@@ -227,16 +302,57 @@ class PolymarketAIBot {
                     size: signal.size,
                 },
                 {
-                    tickSize: signal.market.minimum_tick_size.toString() as any,
+                    tickSize: signal.market.minimum_tick_size.toString() as TickSize,
                     negRisk: signal.market.neg_risk
                 },
                 OrderType.GTC
-            );
+            ) as OrderResponse;
 
-            if (order.success) {
+            if (order.success && order.orderID) {
                 console.log(`      ✅ Ордер размещен: ${order.orderID}`);
+
+                // Сохраняем ордер в базу данных
+                if (this.db) {
+                    try {
+                        await this.db.saveOrder({
+                            order_id: order.orderID,
+                            token_id: signal.tokenId,
+                            condition_id: signal.market.condition_id,
+                            market_slug: signal.market.market_slug,
+                            side: signal.side,
+                            price: signal.price,
+                            size: signal.size,
+                            order_type: 'GTC',
+                            source: 'bot',
+                            strategy: this.strategy.name
+                        });
+                        console.log(`      💾 Ордер сохранен в БД`);
+                    } catch (dbError) {
+                        console.warn(`      ⚠️  Ошибка сохранения в БД:`, getErrorMessage(dbError));
+                    }
+                }
+
+                // Отправляем нотификацию в Telegram
+                if (this.telegramBot) {
+                    await this.telegramBot.notifyOrderPlaced(
+                        order.orderID,
+                        signal.side,
+                        tokenOutcome,
+                        signal.price,
+                        signal.size,
+                        signal.market.question
+                    ).catch(err => console.warn('Failed to send Telegram notification:', getErrorMessage(err)));
+                }
             } else {
                 console.log(`      ❌ Ошибка размещения: ${order.errorMsg}`);
+
+                // Отправляем нотификацию об ошибке в Telegram
+                if (this.telegramBot) {
+                    await this.telegramBot.notifyOrderError(
+                        signal.market.question,
+                        order.errorMsg || 'Unknown error'
+                    ).catch(err => console.warn('Failed to send Telegram notification:', getErrorMessage(err)));
+                }
             }
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -295,9 +411,18 @@ class PolymarketAIBot {
         }
     }
 
-    stop(): void {
+    async stop(): Promise<void> {
         console.log("\n🛑 Остановка бота...");
         this.isRunning = false;
+
+        // Закрываем соединение с БД
+        if (this.db) {
+            try {
+                await this.db.disconnect();
+            } catch (error) {
+                console.warn("⚠️  Ошибка отключения БД:", getErrorMessage(error));
+            }
+        }
     }
 }
 
@@ -319,17 +444,8 @@ async function main() {
         await bot.initialize();
 
         // Обработка graceful shutdown
-        process.on('SIGINT', () => {
-            console.log('\n\n⚠️  Получен SIGINT (Ctrl+C)');
-            bot.stop();
-            process.exit(0);
-        });
-
-        process.on('SIGTERM', () => {
-            console.log('\n\n⚠️  Получен SIGTERM');
-            bot.stop();
-            process.exit(0);
-        });
+        const { setupGracefulShutdown } = await import('./utils/graceful-shutdown');
+        setupGracefulShutdown(bot);
 
         // Запускаем основной цикл
         await bot.run();

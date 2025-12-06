@@ -2,6 +2,8 @@
 
 REST API для получения информации о позициях, ордерах и сделках в реальном времени.
 
+**⚠️ Безопасный режим:** API сервер работает в безопасном режиме - никакие стратегии не запускаются автоматически. Все действия выполняются вручную через API endpoints. См. [Безопасный Workflow](safe-trading-workflow.md) для подробностей.
+
 ## Запуск API сервера
 
 ```bash
@@ -357,3 +359,30 @@ setInterval(async () => {
 - `/api/positions/orders` - проверка новых ордеров
 - `/api/positions/active` - обновление позиций
 - `/api/positions/balance` - текущий баланс
+
+---
+
+## Безопасный Workflow
+
+API сервер поддерживает безопасный workflow для ручной торговли без автоматических стратегий.
+
+**Основные этапы:**
+1. Анализ рынков (без торговли)
+2. Фильтрация по показателям
+3. Детали рынка + AI оценка
+4. Вход в рынок (ручной)
+
+Подробнее: [Безопасный Workflow](safe-trading-workflow.md)
+
+### Новые endpoints для безопасного workflow
+
+**Markets:**
+- `GET /api/markets/analyze` - анализ рынков
+- `POST /api/markets/filter` - фильтрация рынков
+- `GET /api/markets/:conditionId` - детали рынка
+- `POST /api/markets/:conditionId/ai-analysis` - AI оценка рынка
+
+**Positions (расширенные):**
+- `POST /api/positions/create-order` - создать ордер вручную
+- `GET /api/positions/orders/:orderId` - статус конкретного ордера
+- `GET /api/positions/orders/all` - все ордера (открытые + заполненные)

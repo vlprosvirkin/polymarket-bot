@@ -15,7 +15,7 @@ import {
 import { AIMarketFilter, type FilterContext } from '../services/ai/ai-market-filter';
 import { AI_STRATEGY_CONFIG } from '../core/config';
 import { MarketFilter } from '../services/MarketFilter';
-import { PolymarketDataService, type EnrichedMarket } from '../services/PolymarketDataService';
+import { PolymarketDataAdapter, type EnrichedMarket } from '../adapters/polymarket-data.adapter';
 import { ClobClient } from '@polymarket/clob-client';
 
 export interface AIStrategyConfig extends StrategyConfig {
@@ -51,14 +51,15 @@ export class AIStrategy implements IStrategy {
     name = "AI-Powered Strategy";
     config: AIStrategyConfig;
     private aiFilter: AIMarketFilter | null = null;
-    // client хранится через dataService, нет необходимости в отдельном поле
-    private dataService: PolymarketDataService | null = null;
+    // client хранится через dataAdapter, нет необходимости в отдельном поле
+    private dataAdapter: PolymarketDataAdapter | null = null;
 
     // Кэш AI анализа
     private analysisCache: Map<string, {
         analysis: import('../services/ai/ai-market-filter').MarketAnalysis;
         timestamp: number;
     }> = new Map();
+    private readonly MAX_CACHE_SIZE = 1000; // Максимальный размер кэша
 
     // Трекинг расходов AI
     private spendingTracker = {
@@ -84,7 +85,7 @@ export class AIStrategy implements IStrategy {
         if (config.useAI) {
             try {
                 this.aiFilter = new AIMarketFilter(config.useNews);
-                console.log(`✅ AI Strategy initialized (news: ${config.useNews}, cache: ${this.CACHE_TTL}ms, budget: $${this.spendingTracker.dailyLimit}/day)`);
+                console.warn(`✅ AI Strategy initialized (news: ${config.useNews}, cache: ${this.CACHE_TTL}ms, budget: $${this.spendingTracker.dailyLimit}/day)`);
             } catch (error) {
                 console.warn('⚠️  Failed to initialize AI Filter:', error);
                 this.config.useAI = false;
@@ -93,8 +94,8 @@ export class AIStrategy implements IStrategy {
     }
 
     setClient(client: ClobClient): void {
-        // Сохраняем client через dataService для работы с обогащенными данными
-        this.dataService = new PolymarketDataService(client);
+        // Сохраняем client через dataAdapter для работы с обогащенными данными
+        this.dataAdapter = new PolymarketDataAdapter(client);
     }
 
     filterMarkets(markets: Market[]): Market[] {
@@ -116,15 +117,15 @@ export class AIStrategy implements IStrategy {
 
         // Базовая фильтрация через MarketFilter (без volume - его нет в API)
         // Фильтруем только по тому что есть: цена, NegRisk, категории
-        console.log(`\n🔍 ЭТАП 1.1: Базовая фильтрация ${markets.length} рынков`);
-        console.log(`   📋 Критерии фильтрации:`);
-        console.log(`      - Цена YES: ${(this.config.minPrice || 0) * 100}% - ${(this.config.maxPrice || 1) * 100}%`);
-        console.log(`      - Исключить NegRisk: ${this.config.excludeNegRisk ? 'да' : 'нет'}`);
+        console.warn(`\n🔍 ЭТАП 1.1: Базовая фильтрация ${markets.length} рынков`);
+        console.warn(`   📋 Критерии фильтрации:`);
+        console.warn(`      - Цена YES: ${(this.config.minPrice || 0) * 100}% - ${(this.config.maxPrice || 1) * 100}%`);
+        console.warn(`      - Исключить NegRisk: ${this.config.excludeNegRisk ? 'да' : 'нет'}`);
         if (this.config.preferredCategories && this.config.preferredCategories.length > 0) {
-            console.log(`      - Предпочтительные категории: ${this.config.preferredCategories.join(', ')}`);
+            console.warn(`      - Предпочтительные категории: ${this.config.preferredCategories.join(', ')}`);
         }
         if (this.config.excludedCategories && this.config.excludedCategories.length > 0) {
-            console.log(`      - Исключенные категории: ${this.config.excludedCategories.join(', ')}`);
+            console.warn(`      - Исключенные категории: ${this.config.excludedCategories.join(', ')}`);
         }
         
         let basicFiltered = MarketFilter.filterWithConfig(markets, {
@@ -144,13 +145,13 @@ export class AIStrategy implements IStrategy {
         // (например, для хеджирования в HighConfidenceStrategy и EndgameStrategy)
         const minLiquidity = (this.config as { minLiquidity?: number }).minLiquidity || 1000;
         
-        if (this.dataService && minLiquidity > 0) {
-            console.log(`\n🔍 ЭТАП 1.2: Проверка ликвидности из orderbook`);
-            console.log(`   📊 Параметры:`);
-            console.log(`      - Минимальная ликвидность: $${minLiquidity}`);
-            console.log(`      - Максимальный спред: 99.5 процентных пунктов (практически не ограничивает, так как на неликвидных рынках спред может быть 97-99)`);
-            console.log(`      - Минимум уровней в orderbook: 3`);
-            console.log(`   🔄 Проверка ликвидности для ${basicFiltered.length} рынков...`);
+        if (this.dataAdapter && minLiquidity > 0) {
+            console.warn(`\n🔍 ЭТАП 1.2: Проверка ликвидности из orderbook`);
+            console.warn(`   📊 Параметры:`);
+            console.warn(`      - Минимальная ликвидность: $${minLiquidity}`);
+            console.warn(`      - Максимальный спред: 99.5 процентных пунктов (практически не ограничивает, так как на неликвидных рынках спред может быть 97-99)`);
+            console.warn(`      - Минимум уровней в orderbook: 3`);
+            console.warn(`   🔄 Проверка ликвидности для ${basicFiltered.length} рынков...`);
             
             try {
                 // Обогащаем отфильтрованные рынки данными о ликвидности из orderbook
@@ -158,7 +159,7 @@ export class AIStrategy implements IStrategy {
                 
                 // Ограничиваем количество для проверки (чтобы не перегружать API)
                 const marketsToCheck = basicFiltered.slice(0, 50);
-                console.log(`   📋 Ограничено до ${marketsToCheck.length} рынков для проверки API`);
+                console.warn(`   📋 Ограничено до ${marketsToCheck.length} рынков для проверки API`);
                 
                 let checkedCount = 0;
                 let successCount = 0;
@@ -167,10 +168,10 @@ export class AIStrategy implements IStrategy {
                 for (const market of marketsToCheck) {
                     checkedCount++;
                     if (checkedCount % 10 === 0) {
-                        console.log(`   ⏳ Прогресс: ${checkedCount}/${marketsToCheck.length} (успешно: ${successCount}, ошибок: ${errorCount})...`);
+                        console.warn(`   ⏳ Прогресс: ${checkedCount}/${marketsToCheck.length} (успешно: ${successCount}, ошибок: ${errorCount})...`);
                     }
                     try {
-                        const enriched = await this.dataService.getMarketDetails(market.condition_id);
+                        const enriched = await this.dataAdapter.getMarketDetails(market.condition_id);
                         if (enriched && enriched.liquidityMetrics) {
                             enrichedMarkets.push(enriched);
                             successCount++;
@@ -183,16 +184,16 @@ export class AIStrategy implements IStrategy {
                                 : metrics.totalBidSize + metrics.totalAskSize; // Только YES
                             const bestBid = enriched.orderbook?.bids[0]?.price ? parseFloat(enriched.orderbook.bids[0].price) : 0;
                             const bestAsk = enriched.orderbook?.asks[0]?.price ? parseFloat(enriched.orderbook.asks[0].price) : 1;
-                            console.log(`      ✅ ${market.question.substring(0, 40)}...`);
+                            console.warn(`      ✅ ${market.question.substring(0, 40)}...`);
                             if (metrics.totalMarketLiquidity !== undefined) {
-                                console.log(`         Ликвидность: $${totalLiquidity.toFixed(0)} (YES: $${(metrics.totalBidSize + metrics.totalAskSize).toFixed(0)}, NO: $${((metrics.noTotalBidSize || 0) + (metrics.noTotalAskSize || 0)).toFixed(0)})`);
+                                console.warn(`         Ликвидность: $${totalLiquidity.toFixed(0)} (YES: $${(metrics.totalBidSize + metrics.totalAskSize).toFixed(0)}, NO: $${((metrics.noTotalBidSize || 0) + (metrics.noTotalAskSize || 0)).toFixed(0)})`);
                             } else {
-                                console.log(`         Ликвидность YES: $${totalLiquidity.toFixed(0)} (Bid: $${metrics.totalBidSize.toFixed(0)}, Ask: $${metrics.totalAskSize.toFixed(0)})`);
+                                console.warn(`         Ликвидность YES: $${totalLiquidity.toFixed(0)} (Bid: $${metrics.totalBidSize.toFixed(0)}, Ask: $${metrics.totalAskSize.toFixed(0)})`);
                             }
-                            console.log(`         Спред YES: ${metrics.spreadPercent.toFixed(2)} п.п., Цены: Bid ${(bestBid * 100).toFixed(2)}% / Ask ${(bestAsk * 100).toFixed(2)}%`);
+                            console.warn(`         Спред YES: ${metrics.spreadPercent.toFixed(2)} п.п., Цены: Bid ${(bestBid * 100).toFixed(2)}% / Ask ${(bestAsk * 100).toFixed(2)}%`);
                         } else {
                             errorCount++;
-                            console.log(`      ⚠️  ${market.question.substring(0, 40)}... - нет данных о ликвидности`);
+                            console.warn(`      ⚠️  ${market.question.substring(0, 40)}... - нет данных о ликвидности`);
                         }
                     } catch (error) {
                         errorCount++;
@@ -202,14 +203,14 @@ export class AIStrategy implements IStrategy {
                     }
                 }
                 
-                console.log(`\n   📊 Статистика проверки ликвидности:`);
-                console.log(`      - Проверено: ${checkedCount} рынков`);
-                console.log(`      - Получено данных: ${successCount}`);
-                console.log(`      - Ошибок: ${errorCount}`);
-                console.log(`      - Обогащенных рынков: ${enrichedMarkets.length}`);
+                console.warn(`\n   📊 Статистика проверки ликвидности:`);
+                console.warn(`      - Проверено: ${checkedCount} рынков`);
+                console.warn(`      - Получено данных: ${successCount}`);
+                console.warn(`      - Ошибок: ${errorCount}`);
+                console.warn(`      - Обогащенных рынков: ${enrichedMarkets.length}`);
 
                 if (enrichedMarkets.length > 0) {
-                    console.log(`\n   🔍 Фильтрация по критериям ликвидности...`);
+                    console.warn(`\n   🔍 Фильтрация по критериям ликвидности...`);
                     // Фильтруем обогащенные рынки по ликвидности через MarketFilter
                     // Для рынков предсказаний спред считается в абсолютных процентных пунктах
                     // Например: bid=1%, ask=99% = 98 процентных пунктов спреда
@@ -224,9 +225,9 @@ export class AIStrategy implements IStrategy {
                     );
                     const afterFilter = liquidMarkets.length;
                     
-                    console.log(`      - До фильтрации: ${beforeFilter} рынков`);
-                    console.log(`      - После фильтрации: ${afterFilter} рынков`);
-                    console.log(`      - Отфильтровано: ${beforeFilter - afterFilter} рынков`);
+                    console.warn(`      - До фильтрации: ${beforeFilter} рынков`);
+                    console.warn(`      - После фильтрации: ${afterFilter} рынков`);
+                    console.warn(`      - Отфильтровано: ${beforeFilter - afterFilter} рынков`);
 
                     // Оставляем только рынки с достаточной ликвидностью
                     const liquidMarketIds = new Set(liquidMarkets.map(em => em.condition_id));
@@ -236,38 +237,38 @@ export class AIStrategy implements IStrategy {
                     );
                     const afterBasicFilter = basicFiltered.length;
 
-                    console.log(`\n   ✅ Результат фильтрации ликвидности:`);
-                    console.log(`      - Рынков до проверки ликвидности: ${beforeBasicFilter}`);
-                    console.log(`      - Рынков после проверки ликвидности: ${afterBasicFilter}`);
-                    console.log(`      - Отфильтровано: ${beforeBasicFilter - afterBasicFilter} рынков`);
+                    console.warn(`\n   ✅ Результат фильтрации ликвидности:`);
+                    console.warn(`      - Рынков до проверки ликвидности: ${beforeBasicFilter}`);
+                    console.warn(`      - Рынков после проверки ликвидности: ${afterBasicFilter}`);
+                    console.warn(`      - Отфильтровано: ${beforeBasicFilter - afterBasicFilter} рынков`);
                     
                     if (afterBasicFilter === 0 && beforeBasicFilter > 0) {
-                        console.log(`\n   ⚠️  ВНИМАНИЕ: Все рынки отфильтрованы из-за недостаточной ликвидности!`);
-                        console.log(`      Попробуйте снизить minLiquidity (сейчас: $${minLiquidity})`);
-                        console.log(`      Или увеличьте maxSpread (сейчас: ${maxSpreadPercent}%)`);
+                        console.warn(`\n   ⚠️  ВНИМАНИЕ: Все рынки отфильтрованы из-за недостаточной ликвидности!`);
+                        console.warn(`      Попробуйте снизить minLiquidity (сейчас: $${minLiquidity})`);
+                        console.warn(`      Или увеличьте maxSpread (сейчас: ${maxSpreadPercent}%)`);
                     }
                 } else {
-                    console.log(`\n   ⚠️  Не удалось получить данные о ликвидности для ни одного рынка`);
-                    console.log(`      Возможные причины:`);
-                    console.log(`      - Рынки не имеют ликвидности в orderbook`);
-                    console.log(`      - Проблемы с API Polymarket`);
-                    console.log(`      - Токены не найдены в orderbook`);
-                    console.log(`   💡 Используем базовую фильтрацию без проверки ликвидности`);
+                    console.warn(`\n   ⚠️  Не удалось получить данные о ликвидности для ни одного рынка`);
+                    console.warn(`      Возможные причины:`);
+                    console.warn(`      - Рынки не имеют ликвидности в orderbook`);
+                    console.warn(`      - Проблемы с API Polymarket`);
+                    console.warn(`      - Токены не найдены в orderbook`);
+                    console.warn(`   💡 Используем базовую фильтрацию без проверки ликвидности`);
                 }
             } catch (error) {
                 console.error('\n   ❌ Ошибка при проверке ликвидности:', error);
-                console.log(`   💡 Продолжаем с базовой фильтрацией`);
+                console.warn(`   💡 Продолжаем с базовой фильтрацией`);
             }
         } else {
-            console.log(`\n   ℹ️  Проверка ликвидности пропущена:`);
-            console.log(`      - dataService: ${this.dataService ? 'есть' : 'отсутствует'}`);
-            console.log(`      - minLiquidity: ${minLiquidity}`);
+            console.warn(`\n   ℹ️  Проверка ликвидности пропущена:`);
+            console.warn(`      - dataAdapter: ${this.dataAdapter ? 'есть' : 'отсутствует'}`);
+            console.warn(`      - minLiquidity: ${minLiquidity}`);
         }
 
         if (!this.config.useAI || !this.aiFilter) {
-            console.log(`\n   ℹ️  AI фильтрация отключена, возвращаем базовую фильтрацию`);
+            console.warn(`\n   ℹ️  AI фильтрация отключена, возвращаем базовую фильтрацию`);
             const result = basicFiltered.slice(0, this.config.maxMarkets);
-            console.log(`   ✅ Финальный результат: ${result.length} рынков (макс: ${this.config.maxMarkets})`);
+            console.warn(`   ✅ Финальный результат: ${result.length} рынков (макс: ${this.config.maxMarkets})`);
             return result;
         }
 
@@ -278,7 +279,7 @@ export class AIStrategy implements IStrategy {
                 // Новый день - сброс
                 this.spendingTracker.totalSpent = 0;
                 this.spendingTracker.lastReset = today;
-                console.log('💰 Daily AI budget reset');
+                console.warn('💰 Daily AI budget reset');
             }
 
             if (this.spendingTracker.totalSpent >= this.spendingTracker.dailyLimit) {
@@ -311,14 +312,14 @@ export class AIStrategy implements IStrategy {
                 basicFiltered.length
             );
 
-            console.log(`💰 AI Budget: $${remainingBudget.toFixed(2)} remaining → analyzing max ${maxForAI} markets`);
+            console.warn(`💰 AI Budget: $${remainingBudget.toFixed(2)} remaining → analyzing max ${maxForAI} markets`);
 
             // Сортировка и отбор рынков
             let marketsForAI = basicFiltered;
 
             if (basicFiltered.length > maxForAI) {
                 marketsForAI = this.sortMarketsForAI(basicFiltered).slice(0, maxForAI);
-                console.log(`📊 Selected top ${maxForAI} markets by score for AI analysis`);
+                console.warn(`📊 Selected top ${maxForAI} markets by score for AI analysis`);
             }
 
             const filterContext: FilterContext = {
@@ -329,43 +330,43 @@ export class AIStrategy implements IStrategy {
                 excludedCategories: this.config.excludedCategories
             };
 
-            console.log(`\n🔍 ЭТАП 1.3: AI анализ рынков`);
-            console.log(`   🤖 AI analyzing ${marketsForAI.length} markets...`);
-            console.log(`   📋 Параметры AI анализа:`);
-            console.log(`      - Min Attractiveness: ${(this.config.minAIAttractiveness * 100).toFixed(0)}%`);
-            console.log(`      - Max Risk: ${this.config.maxAIRisk.toUpperCase()}`);
-            console.log(`      - Strategy Type: ${filterContext.strategyType}`);
+            console.warn(`\n🔍 ЭТАП 1.3: AI анализ рынков`);
+            console.warn(`   🤖 AI analyzing ${marketsForAI.length} markets...`);
+            console.warn(`   📋 Параметры AI анализа:`);
+            console.warn(`      - Min Attractiveness: ${(this.config.minAIAttractiveness * 100).toFixed(0)}%`);
+            console.warn(`      - Max Risk: ${this.config.maxAIRisk.toUpperCase()}`);
+            console.warn(`      - Strategy Type: ${filterContext.strategyType}`);
             
             const aiSelected = await this.aiFilter.filterMarkets(marketsForAI, filterContext);
 
-            // Сохранить результаты в кэш
-            aiSelected.forEach(item => {
-                this.analysisCache.set(item.market.condition_id, {
+            // Сохранить результаты в кэш (с ограничением размера)
+            for (const item of aiSelected) {
+                this.addToCache(item.market.condition_id, {
                     analysis: item.analysis,
                     timestamp: Date.now()
                 });
-            });
+            }
 
             // Трекинг расходов
             const estimatedCost = marketsForAI.length * costPerMarket;
             this.spendingTracker.totalSpent += estimatedCost;
 
-            console.log(`\n   ✅ Результат AI анализа:`);
-            console.log(`      - Проанализировано: ${marketsForAI.length} рынков`);
-            console.log(`      - Выбрано AI: ${aiSelected.length} рынков`);
-            console.log(`      - Отфильтровано: ${marketsForAI.length - aiSelected.length} рынков`);
-            console.log(`      - Расход: $${estimatedCost.toFixed(3)}`);
-            console.log(`      - Всего потрачено сегодня: $${this.spendingTracker.totalSpent.toFixed(2)}/$${this.spendingTracker.dailyLimit}`);
+            console.warn(`\n   ✅ Результат AI анализа:`);
+            console.warn(`      - Проанализировано: ${marketsForAI.length} рынков`);
+            console.warn(`      - Выбрано AI: ${aiSelected.length} рынков`);
+            console.warn(`      - Отфильтровано: ${marketsForAI.length - aiSelected.length} рынков`);
+            console.warn(`      - Расход: $${estimatedCost.toFixed(3)}`);
+            console.warn(`      - Всего потрачено сегодня: $${this.spendingTracker.totalSpent.toFixed(2)}/$${this.spendingTracker.dailyLimit}`);
 
             const finalMarkets = aiSelected.map(item => item.market);
-            console.log(`\n   ✅ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ: ${finalMarkets.length} рынков для торговли`);
+            console.warn(`\n   ✅ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ: ${finalMarkets.length} рынков для торговли`);
             return finalMarkets;
 
         } catch (error) {
             console.error('\n   ❌ Ошибка в AI фильтрации:', error);
             console.error('   💡 Используем базовую фильтрацию как fallback');
             const fallback = basicFiltered.slice(0, this.config.maxMarkets);
-            console.log(`   ✅ Fallback результат: ${fallback.length} рынков`);
+            console.warn(`   ✅ Fallback результат: ${fallback.length} рынков`);
             return fallback;
         }
     }
@@ -395,7 +396,7 @@ export class AIStrategy implements IStrategy {
                 if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL)) {
                     // Используем из кэша
                     analysis = cached.analysis;
-                    console.log(`📦 Using cached AI analysis for ${market.question.substring(0, 50)}...`);
+                    console.warn(`📦 Using cached AI analysis for ${market.question.substring(0, 50)}...`);
                 } else {
                     // Новый AI анализ
                     analysis = await this.aiFilter.analyzeMarket(market, {
@@ -404,29 +405,44 @@ export class AIStrategy implements IStrategy {
                         maxRisk: this.config.maxAIRisk
                     });
 
-                    // Сохранить в кэш
-                    this.analysisCache.set(market.condition_id, {
+                    // Сохранить в кэш (с ограничением размера)
+                    this.addToCache(market.condition_id, {
                         analysis,
                         timestamp: Date.now()
                     });
 
-                    console.log(`🤖 Fresh AI analysis for ${market.question.substring(0, 50)}...`);
+                    console.warn(`🤖 Fresh AI analysis for ${market.question.substring(0, 50)}...`);
                 }
 
+                // 🔍 DEBUG: Логируем начальные параметры
+                console.warn(`      🔍 [DEBUG] Signal generation для "${market.question.substring(0, 50)}..."`);
+                console.warn(`         - shouldTrade: ${analysis.shouldTrade}`);
+                console.warn(`         - recommendedAction: ${analysis.recommendedAction ?? 'undefined'}`);
+                console.warn(`         - estimatedProbability: ${analysis.estimatedProbability !== undefined ? `${(analysis.estimatedProbability * 100).toFixed(1)}%` : 'undefined'}`);
+                console.warn(`         - currentPrice (YES): ${(currentPrice * 100).toFixed(1)}%`);
+                console.warn(`         - attractiveness: ${(analysis.attractiveness * 100).toFixed(1)}%`);
+                console.warn(`         - riskLevel: ${analysis.riskLevel}`);
+
                 if (!analysis.shouldTrade || analysis.recommendedAction === 'AVOID') {
+                    console.warn(`      ❌ [DEBUG] Блокировка: shouldTrade=${analysis.shouldTrade}, recommendedAction=${analysis.recommendedAction ?? 'undefined'}`);
                     return signals;
                 }
 
                 if (this.config.maxAIRisk === 'low' && analysis.riskLevel !== 'low') {
+                    console.warn(`      ❌ [DEBUG] Блокировка: riskLevel=${analysis.riskLevel} > maxAIRisk=low`);
                     return signals;
                 }
 
                 const yesToken = market.tokens.find(t => t.outcome === 'Yes');
                 const noToken = market.tokens.find(t => t.outcome === 'No');
-                if (!yesToken || !noToken) return signals;
+                if (!yesToken || !noToken) {
+                    console.warn(`      ❌ [DEBUG] Блокировка: tokens not found`);
+                    return signals;
+                }
 
                 // Получаем минимальный edge из конфига
                 const minEdge = this.config.minEdgePercentagePoints ?? AI_STRATEGY_CONFIG.MIN_EDGE_PERCENTAGE_POINTS;
+                console.warn(`      🔍 [DEBUG] minEdge: ${(minEdge * 100).toFixed(1)} п.п.`);
                 
                 // Если AI дал оценку вероятности, сравниваем с рыночной ценой (edge)
                 let edge: number | undefined;
@@ -444,9 +460,12 @@ export class AIStrategy implements IStrategy {
                         edgeReason = `AI ${aiProbPercent}% < Market ${marketPercent}% (edge: -${edgePercent} п.п.)`;
                     }
                     
-                    // Проверяем edge для BUY_YES
-                    if (edge < minEdge) {
-                        console.log(`      ⚠️  Edge слишком мал: ${(edge * 100).toFixed(1)} п.п. < ${(minEdge * 100).toFixed(1)} п.п. (пропускаем)`);
+                    console.warn(`      🔍 [DEBUG] YES edge: ${edgePercent} п.п. (${edgeReason})`);
+                    
+                    // ⚠️ ВАЖНО: Эта проверка edge должна быть только для BUY_YES!
+                    // Для BUY_NO мы проверяем NO edge позже
+                    if (analysis.recommendedAction === 'BUY_YES' && edge < minEdge) {
+                        console.warn(`      ⚠️  Edge для BUY_YES слишком мал: ${(edge * 100).toFixed(1)} п.п. < ${(minEdge * 100).toFixed(1)} п.п. (пропускаем)`);
                         return signals; // Edge недостаточен для входа
                     }
                 }
@@ -455,15 +474,22 @@ export class AIStrategy implements IStrategy {
                 if (analysis.recommendedAction === 'BUY_YES' || 
                     (analysis.attractiveness > AI_STRATEGY_CONFIG.ATTRACTIVENESS_THRESHOLD_FOR_SIGNALS && !analysis.recommendedAction)) {
                     
+                    console.warn(`      ✅ [DEBUG] BUY_YES условие выполнено: recommendedAction=${analysis.recommendedAction ?? 'undefined'}, attractiveness=${(analysis.attractiveness * 100).toFixed(1)}%`);
+                    
                     // Дополнительная проверка: если AI дал оценку вероятности, она должна быть > рыночной для BUY_YES
                     if (analysis.estimatedProbability !== undefined) {
                         if (analysis.estimatedProbability <= currentPrice) {
-                            console.log(`      ⚠️  AI оценка (${(analysis.estimatedProbability * 100).toFixed(1)}%) <= рыночная цена (${(currentPrice * 100).toFixed(1)}%) - нет edge для BUY_YES`);
+                            console.warn(`      ⚠️  AI оценка (${(analysis.estimatedProbability * 100).toFixed(1)}%) <= рыночная цена (${(currentPrice * 100).toFixed(1)}%) - нет edge для BUY_YES`);
                             return signals;
                         }
                     }
                     
-                    const size = this.calculateOrderSize(currentPrice, analysis.attractiveness);
+                    const size = this.calculateOrderSize(currentPrice, analysis.attractiveness, {
+                        confidence: analysis.confidence,
+                        estimatedProbability: analysis.estimatedProbability,
+                        riskLevel: analysis.riskLevel
+                    });
+                    console.warn(`      🔍 [DEBUG] BUY_YES size: ${size}, minimum_order_size: ${market.minimum_order_size}`);
                     
                     if (size >= market.minimum_order_size) {
                         const reason = edge 
@@ -478,31 +504,47 @@ export class AIStrategy implements IStrategy {
                             size,
                             reason
                         });
+                        console.warn(`      ✅ [DEBUG] BUY_YES сигнал создан!`);
+                    } else {
+                        console.warn(`      ❌ [DEBUG] BUY_YES блокировка: size ${size} < minimum_order_size ${market.minimum_order_size}`);
                     }
+                } else {
+                    console.warn(`      ⏭️  [DEBUG] BUY_YES условие НЕ выполнено: recommendedAction=${analysis.recommendedAction ?? 'undefined'}, attractiveness=${(analysis.attractiveness * 100).toFixed(1)}%`);
                 }
 
                 // BUY_NO: если AI рекомендует NO, проверяем edge для NO
                 if (analysis.recommendedAction === 'BUY_NO') {
+                    console.warn(`      ✅ [DEBUG] BUY_NO условие выполнено`);
                     const noPrice = 1 - currentPrice;
                     const noProbability = analysis.estimatedProbability !== undefined 
                         ? 1 - analysis.estimatedProbability 
                         : undefined;
                     
+                    console.warn(`      🔍 [DEBUG] NO цена: ${(noPrice * 100).toFixed(1)}%, NO вероятность: ${noProbability !== undefined ? `${(noProbability * 100).toFixed(1)}%` : 'undefined'}`);
+                    
                     // Если AI дал оценку вероятности для NO
                     if (noProbability !== undefined) {
                         const noEdge = Math.abs(noProbability - noPrice);
+                        console.warn(`      🔍 [DEBUG] NO edge: ${(noEdge * 100).toFixed(1)} п.п., minEdge: ${(minEdge * 100).toFixed(1)} п.п.`);
+                        
                         if (noEdge < minEdge) {
-                            console.log(`      ⚠️  Edge для NO слишком мал: ${(noEdge * 100).toFixed(1)} п.п. < ${(minEdge * 100).toFixed(1)} п.п. (пропускаем)`);
+                            console.warn(`      ⚠️  Edge для NO слишком мал: ${(noEdge * 100).toFixed(1)} п.п. < ${(minEdge * 100).toFixed(1)} п.п. (пропускаем)`);
                             return signals;
                         }
                         
+                        console.warn(`      🔍 [DEBUG] Проверка: noProbability (${(noProbability * 100).toFixed(1)}%) > noPrice (${(noPrice * 100).toFixed(1)}%)? ${noProbability > noPrice}`);
                         if (noProbability <= noPrice) {
-                            console.log(`      ⚠️  AI оценка NO (${(noProbability * 100).toFixed(1)}%) <= рыночная цена NO (${(noPrice * 100).toFixed(1)}%) - нет edge`);
+                            console.warn(`      ⚠️  AI оценка NO (${(noProbability * 100).toFixed(1)}%) <= рыночная цена NO (${(noPrice * 100).toFixed(1)}%) - нет edge`);
                             return signals;
                         }
                     }
                     
-                    const size = this.calculateOrderSize(noPrice, analysis.attractiveness);
+                    const size = this.calculateOrderSize(noPrice, analysis.attractiveness, {
+                        confidence: analysis.confidence,
+                        estimatedProbability: noProbability, // Для NO используем перевернутую вероятность
+                        riskLevel: analysis.riskLevel
+                    });
+                    console.warn(`      🔍 [DEBUG] BUY_NO size: ${size}, minimum_order_size: ${market.minimum_order_size}`);
                     
                     if (size >= market.minimum_order_size) {
                         const noEdgeReason = noProbability !== undefined
@@ -520,8 +562,15 @@ export class AIStrategy implements IStrategy {
                             size,
                             reason
                         });
+                        console.warn(`      ✅ [DEBUG] BUY_NO сигнал создан!`);
+                    } else {
+                        console.warn(`      ❌ [DEBUG] BUY_NO блокировка: size ${size} < minimum_order_size ${market.minimum_order_size}`);
                     }
+                } else {
+                    console.warn(`      ⏭️  [DEBUG] BUY_NO условие НЕ выполнено: recommendedAction=${analysis.recommendedAction ?? 'undefined'}`);
                 }
+                
+                console.warn(`      🔍 [DEBUG] Итого сигналов: ${signals.length}`);
 
                 return signals;
             } catch (error) {
@@ -558,15 +607,92 @@ export class AIStrategy implements IStrategy {
         return signals;
     }
 
-    private calculateOrderSize(_price: number, attractiveness: number): number {
-        const multiplier = 1 + attractiveness;
-        const adjustedSize = Math.floor(this.config.orderSize * multiplier);
-        return Math.min(adjustedSize, this.config.maxPosition);
+    /**
+     * Динамический расчет размера ордера на основе множества факторов
+     * Multi-factor sizing: attractiveness, confidence, edge, risk
+     * 
+     * Формула:
+     * size = baseSize 
+     *      * attractiveness_mult (1-2x)
+     *      * confidence_mult (0.5-1.5x)
+     *      * edge_mult (1-2x, больше edge = больше size)
+     *      * risk_mult (0.5-1.5x, low risk = больше size)
+     * 
+     * Ограничения:
+     * - Min: baseSize * 0.5 (минимум половина базового размера)
+     * - Max: maxPosition или baseSize * 6 (максимум 6x базового размера)
+     */
+    private calculateOrderSize(
+        price: number, 
+        attractiveness: number,
+        analysis?: { 
+            confidence?: number; 
+            estimatedProbability?: number; 
+            riskLevel?: 'low' | 'medium' | 'high';
+        }
+    ): number {
+        const baseSize = this.config.orderSize;
+        
+        // 1. Attractiveness multiplier: 1.0 - 2.0x
+        // attractiveness = 0.0 → 1.0x, attractiveness = 1.0 → 2.0x
+        const attractivenessMult = 1.0 + attractiveness;
+        
+        // 2. Confidence multiplier: 0.5 - 1.5x
+        // confidence = 0.0 → 0.5x, confidence = 1.0 → 1.5x
+        const confidence = analysis?.confidence ?? 0.5;
+        const confidenceMult = 0.5 + (confidence * 1.0);
+        
+        // 3. Edge multiplier: 1.0 - 2.0x
+        // Больше edge = больше размер позиции
+        let edgeMult = 1.0;
+        if (analysis?.estimatedProbability !== undefined) {
+            const edge = Math.abs(analysis.estimatedProbability - price);
+            // edge = 0.0 → 1.0x, edge = 0.20 (20 п.п.) → 2.0x
+            edgeMult = 1.0 + Math.min(edge * 5, 1.0); // Максимум 2.0x при edge >= 0.20
+        }
+        
+        // 4. Risk multiplier: 0.5 - 1.5x
+        // low risk = 1.5x, medium = 1.0x, high = 0.5x
+        const riskLevel = analysis?.riskLevel ?? 'medium';
+        const riskMult = riskLevel === 'low' ? 1.5 : (riskLevel === 'medium' ? 1.0 : 0.5);
+        
+        // Итоговый размер
+        let size = baseSize * attractivenessMult * confidenceMult * edgeMult * riskMult;
+        
+        // Ограничения
+        const minSize = baseSize * 0.5; // Минимум половина базового размера
+        const maxSize = Math.min(this.config.maxPosition, baseSize * 6); // Максимум 6x или maxPosition
+        
+        size = Math.max(minSize, Math.min(size, maxSize));
+        
+        // Округляем до целого
+        size = Math.floor(size);
+        
+        // Логирование для отладки
+        if (analysis) {
+            console.warn(`      💰 Dynamic sizing: base=${baseSize}, attr=${attractivenessMult.toFixed(2)}x, conf=${confidenceMult.toFixed(2)}x, edge=${edgeMult.toFixed(2)}x, risk=${riskMult.toFixed(2)}x → ${size}`);
+        }
+        
+        return size;
     }
 
     /**
      * Очистка устаревших записей из кэша
      */
+    /**
+     * Добавить запись в кэш с ограничением размера (LRU)
+     */
+    private addToCache(key: string, value: { analysis: import('../services/ai/ai-market-filter').MarketAnalysis; timestamp: number }): void {
+        // Если кэш переполнен, удаляем старейшую запись
+        if (this.analysisCache.size >= this.MAX_CACHE_SIZE) {
+            const firstKey = this.analysisCache.keys().next().value;
+            if (firstKey) {
+                this.analysisCache.delete(firstKey);
+            }
+        }
+        this.analysisCache.set(key, value);
+    }
+
     private cleanCache(): void {
         const now = Date.now();
         let cleaned = 0;
@@ -577,9 +703,20 @@ export class AIStrategy implements IStrategy {
                 cleaned++;
             }
         }
+        
+        // Дополнительная проверка: если кэш все еще переполнен, удаляем старейшие записи
+        if (this.analysisCache.size > this.MAX_CACHE_SIZE) {
+            const entries = Array.from(this.analysisCache.entries())
+                .sort((a, b) => a[1].timestamp - b[1].timestamp);
+            const toRemove = entries.slice(0, this.analysisCache.size - this.MAX_CACHE_SIZE);
+            for (const [key] of toRemove) {
+                this.analysisCache.delete(key);
+                cleaned++;
+            }
+        }
 
         if (cleaned > 0) {
-            console.log(`🗑️  Cleaned ${cleaned} expired cache entries`);
+            console.warn(`🗑️  Cleaned ${cleaned} expired cache entries`);
         }
     }
 

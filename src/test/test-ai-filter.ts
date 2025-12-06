@@ -12,27 +12,27 @@ import { AIMarketFilter } from '../services/ai/ai-market-filter';
 dotenvConfig({ path: resolve(__dirname, '../../.env') });
 
 async function testAIMarketFilter() {
-    console.log('🧪 Testing AI Market Filter (Poly-Trader approach)\n');
+    console.warn('🧪 Testing AI Market Filter (Poly-Trader approach)\n');
 
     // 1. Инициализация клиента
     const host = process.env.CLOB_API_URL || 'https://clob.polymarket.com';
     const chainId = parseInt(process.env.CHAIN_ID || '137');
     const client = new ClobClient(host, chainId);
 
-    console.log('📡 Connected to Polymarket API\n');
+    console.warn('📡 Connected to Polymarket API\n');
 
     // 2. Получаем рынки
-    console.log('📊 Fetching markets...');
+    console.warn('📊 Fetching markets...');
     const response = await client.getSamplingMarkets();
     const markets = response.data || [];
-    console.log(`✅ Found ${markets.length} markets\n`);
+    console.warn(`✅ Found ${markets.length} markets\n`);
 
     // 3. Фильтруем активные рынки
     const activeMarkets = markets
         .filter(m => m.active && !m.closed && m.accepting_orders)
         .slice(0, 10); // Берем первые 10 для теста
 
-    console.log(`🎯 Testing with ${activeMarkets.length} active markets\n`);
+    console.warn(`🎯 Testing with ${activeMarkets.length} active markets\n`);
 
     // 4. Инициализация AI Market Filter
     // Используем новости из SerpAPI (как в Poly-Trader)
@@ -40,20 +40,20 @@ async function testAIMarketFilter() {
     const filter = new AIMarketFilter(useNews);
     
     if (useNews) {
-        console.log('🤖 AI Market Filter initialized with SerpAPI news integration\n');
+        console.warn('🤖 AI Market Filter initialized with SerpAPI news integration\n');
     } else {
-        console.log('🤖 AI Market Filter initialized (news disabled - set SERP_API_KEY to enable)\n');
+        console.warn('🤖 AI Market Filter initialized (news disabled - set SERP_API_KEY to enable)\n');
     }
 
     // 5. Тестируем анализ одного рынка
-    console.log('='.repeat(80));
-    console.log('TEST 1: Single Market Analysis');
-    console.log('='.repeat(80));
+    console.warn('='.repeat(80));
+    console.warn('TEST 1: Single Market Analysis');
+    console.warn('='.repeat(80));
 
     const testMarket = activeMarkets[0];
     if (testMarket) {
-        console.log(`\n📋 Market: ${testMarket.question}`);
-        console.log(`   Condition ID: ${testMarket.condition_id}`);
+        console.warn(`\n📋 Market: ${testMarket.question}`);
+        console.warn(`   Condition ID: ${testMarket.condition_id}`);
 
         const analysis = await filter.analyzeMarket(testMarket, {
             strategyType: 'endgame',
@@ -61,36 +61,36 @@ async function testAIMarketFilter() {
             maxRisk: 'medium'
         });
 
-        console.log(`\n✅ AI Analysis:`);
-        console.log(`   Should Trade: ${analysis.shouldTrade ? '✅ YES' : '❌ NO'}`);
-        console.log(`   Confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
-        console.log(`   Attractiveness: ${(analysis.attractiveness * 100).toFixed(1)}%`);
-        console.log(`   Risk Level: ${analysis.riskLevel.toUpperCase()}`);
-        console.log(`   Reasoning: ${analysis.reasoning}`);
+        console.warn(`\n✅ AI Analysis:`);
+        console.warn(`   Should Trade: ${analysis.shouldTrade ? '✅ YES' : '❌ NO'}`);
+        console.warn(`   Confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
+        console.warn(`   Attractiveness: ${(analysis.attractiveness * 100).toFixed(1)}%`);
+        console.warn(`   Risk Level: ${analysis.riskLevel.toUpperCase()}`);
+        console.warn(`   Reasoning: ${analysis.reasoning}`);
 
         if (analysis.riskFactors.length > 0) {
-            console.log(`\n   ⚠️  Risk Factors:`);
+            console.warn(`\n   ⚠️  Risk Factors:`);
             analysis.riskFactors.forEach(factor => {
-                console.log(`      - ${factor}`);
+                console.warn(`      - ${factor}`);
             });
         }
 
         if (analysis.opportunities.length > 0) {
-            console.log(`\n   💡 Opportunities:`);
+            console.warn(`\n   💡 Opportunities:`);
             analysis.opportunities.forEach(opp => {
-                console.log(`      - ${opp}`);
+                console.warn(`      - ${opp}`);
             });
         }
 
         if (analysis.recommendedAction) {
-            console.log(`\n   🎯 Recommended Action: ${analysis.recommendedAction}`);
+            console.warn(`\n   🎯 Recommended Action: ${analysis.recommendedAction}`);
         }
     }
 
     // 6. Тестируем фильтрацию нескольких рынков
-    console.log('\n' + '='.repeat(80));
-    console.log('TEST 2: Filter Multiple Markets (Poly-Trader Style)');
-    console.log('='.repeat(80));
+    console.warn('\n' + '='.repeat(80));
+    console.warn('TEST 2: Filter Multiple Markets (Poly-Trader Style)');
+    console.warn('='.repeat(80));
 
     const filterContext = {
         strategyType: 'endgame' as const,
@@ -101,31 +101,31 @@ async function testAIMarketFilter() {
 
     const selectedMarkets = await filter.filterMarkets(activeMarkets, filterContext);
 
-    console.log(`\n✅ AI Selected ${selectedMarkets.length} markets for trading:\n`);
+    console.warn(`\n✅ AI Selected ${selectedMarkets.length} markets for trading:\n`);
 
     selectedMarkets.forEach((item, index) => {
         const { market, analysis } = item;
-        console.log(`${index + 1}. ${market.question.substring(0, 60)}...`);
-        console.log(`   Should Trade: ${analysis.shouldTrade ? '✅' : '❌'}`);
-        console.log(`   Attractiveness: ${(analysis.attractiveness * 100).toFixed(1)}%`);
-        console.log(`   Confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
-        console.log(`   Risk: ${analysis.riskLevel.toUpperCase()}`);
+        console.warn(`${index + 1}. ${market.question.substring(0, 60)}...`);
+        console.warn(`   Should Trade: ${analysis.shouldTrade ? '✅' : '❌'}`);
+        console.warn(`   Attractiveness: ${(analysis.attractiveness * 100).toFixed(1)}%`);
+        console.warn(`   Confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
+        console.warn(`   Risk: ${analysis.riskLevel.toUpperCase()}`);
         
         const yesToken = market.tokens.find(t => t.outcome === 'Yes');
         if (yesToken) {
-            console.log(`   YES Price: ${(yesToken.price * 100).toFixed(2)}%`);
+            console.warn(`   YES Price: ${(yesToken.price * 100).toFixed(2)}%`);
         }
         
         if (analysis.recommendedAction) {
-            console.log(`   Action: ${analysis.recommendedAction}`);
+            console.warn(`   Action: ${analysis.recommendedAction}`);
         }
-        console.log();
+        console.warn();
     });
 
     // 7. Статистика
-    console.log('='.repeat(80));
-    console.log('TEST 3: Statistics');
-    console.log('='.repeat(80));
+    console.warn('='.repeat(80));
+    console.warn('TEST 3: Statistics');
+    console.warn('='.repeat(80));
 
     const total = activeMarkets.length;
     const tradable = selectedMarkets.length;
@@ -141,37 +141,37 @@ async function testAIMarketFilter() {
         return acc;
     }, {} as Record<string, number>);
 
-    console.log(`\n📊 Statistics:`);
-    console.log(`   Total Markets Analyzed: ${total}`);
-    console.log(`   Markets Selected for Trading: ${tradable} (${(tradable / total * 100).toFixed(1)}%)`);
-    console.log(`   Average Attractiveness: ${(avgAttractiveness * 100).toFixed(1)}%`);
-    console.log(`   Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
-    console.log(`\n   Risk Distribution:`);
+    console.warn(`\n📊 Statistics:`);
+    console.warn(`   Total Markets Analyzed: ${total}`);
+    console.warn(`   Markets Selected for Trading: ${tradable} (${(tradable / total * 100).toFixed(1)}%)`);
+    console.warn(`   Average Attractiveness: ${(avgAttractiveness * 100).toFixed(1)}%`);
+    console.warn(`   Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+    console.warn(`\n   Risk Distribution:`);
     Object.entries(riskDistribution).forEach(([risk, count]) => {
-        console.log(`      ${risk.toUpperCase()}: ${count}`);
+        console.warn(`      ${risk.toUpperCase()}: ${count}`);
     });
 
     // 8. Пример использования в стратегии
-    console.log('\n' + '='.repeat(80));
-    console.log('TEST 4: Integration Example');
-    console.log('='.repeat(80));
+    console.warn('\n' + '='.repeat(80));
+    console.warn('TEST 4: Integration Example');
+    console.warn('='.repeat(80));
 
-    console.log(`\n💡 How to use in your strategy:\n`);
-    console.log(`// 1. Get all markets`);
-    console.log(`const allMarkets = await client.getSamplingMarkets();`);
-    console.log(`\n// 2. Basic filtering (your existing rules)`);
-    console.log(`const basicFiltered = allMarkets.filter(m => m.active && !m.closed);`);
-    console.log(`\n// 3. AI Filter (new - like Poly-Trader)`);
-    console.log(`const aiFilter = new AIMarketFilter();`);
-    console.log(`const aiSelected = await aiFilter.filterMarkets(basicFiltered, {`);
-    console.log(`    strategyType: 'endgame',`);
-    console.log(`    minAttractiveness: 0.6,`);
-    console.log(`    maxRisk: 'medium'`);
-    console.log(`});`);
-    console.log(`\n// 4. Use selected markets`);
-    console.log(`const marketsToTrade = aiSelected.map(item => item.market);`);
+    console.warn(`\n💡 How to use in your strategy:\n`);
+    console.warn(`// 1. Get all markets`);
+    console.warn(`const allMarkets = await client.getSamplingMarkets();`);
+    console.warn(`\n// 2. Basic filtering (your existing rules)`);
+    console.warn(`const basicFiltered = allMarkets.filter(m => m.active && !m.closed);`);
+    console.warn(`\n// 3. AI Filter (new - like Poly-Trader)`);
+    console.warn(`const aiFilter = new AIMarketFilter();`);
+    console.warn(`const aiSelected = await aiFilter.filterMarkets(basicFiltered, {`);
+    console.warn(`    strategyType: 'endgame',`);
+    console.warn(`    minAttractiveness: 0.6,`);
+    console.warn(`    maxRisk: 'medium'`);
+    console.warn(`});`);
+    console.warn(`\n// 4. Use selected markets`);
+    console.warn(`const marketsToTrade = aiSelected.map(item => item.market);`);
 
-    console.log('\n✅ AI Market Filter test completed!\n');
+    console.warn('\n✅ AI Market Filter test completed!\n');
 }
 
 // Запуск теста

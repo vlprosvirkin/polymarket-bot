@@ -1,0 +1,111 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_ZONE: us-central1-a
+  GCP_VM_NAME: typescript-server
+  GCP_VM_IP: 146.148.47.76
+  DOCKER_IMAGE_NAME: polymarket-bot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Setup GCP CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          export_default_credentials: true
+
+      - name: Configure Docker for GCP
+        run: |
+          gcloud auth configure-docker --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE_NAME }}:latest .
+          docker tag ${{ env.DOCKER_IMAGE_NAME }}:latest ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Save Docker image as tar
+        run: |
+          docker save ${{ env.DOCKER_IMAGE_NAME }}:latest | gzip > image.tar.gz
+
+      - name: Copy image to GCP VM
+        run: |
+          gcloud compute scp --zone=${{ env.GCP_ZONE }} image.tar.gz ${{ env.GCP_VM_NAME }}:/tmp/
+
+      - name: Deploy to GCP VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.GCP_VM_IP }}
+          username: ${{ secrets.GCP_SSH_USER }}
+          key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+          script: |
+            cd /tmp
+            
+            # Load Docker image
+            echo "Loading Docker image..."
+            docker load < image.tar.gz
+            
+            # Stop and remove old container
+            echo "Stopping old container..."
+            docker stop ${{ env.DOCKER_IMAGE_NAME }} 2>/dev/null || true
+            docker rm ${{ env.DOCKER_IMAGE_NAME }} 2>/dev/null || true
+            
+            # Remove old image (optional, to save space)
+            echo "Cleaning up old images..."
+            docker image prune -f || true
+            
+            # Run new container
+            echo "Starting new container..."
+            docker run -d \
+              --name ${{ env.DOCKER_IMAGE_NAME }} \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              --env-file /app/.env \
+              ${{ env.DOCKER_IMAGE_NAME }}:latest
+            
+            # Cleanup
+            rm -f image.tar.gz
+            
+            # Show running containers
+            echo "Running containers:"
+            docker ps
+            
+            # Show logs
+            echo "Container logs (last 20 lines):"
+            docker logs --tail 20 ${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -f http://${{ env.GCP_VM_IP }}:3000/health || exit 1
+

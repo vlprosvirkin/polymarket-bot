@@ -13,6 +13,7 @@ import { AIService } from './ai.service';
 import { SerpAPIService } from '../serpapi.service';
 import { TavilyService } from '../tavily.service';
 import { AI_STRATEGY_CONFIG } from '../../core/config';
+import { RequestQueue } from '../../utils/request-queue';
 
 export interface MarketAnalysis {
     shouldTrade: boolean;        // Стоит ли торговать на этом рынке
@@ -24,6 +25,7 @@ export interface MarketAnalysis {
     riskFactors: string[];       // Конкретные риски
     opportunities: string[];     // Выявленные возможности
     recommendedAction?: 'BUY_YES' | 'BUY_NO' | 'AVOID';
+    sources?: string[];          // URL источников информации (новости, данные)
 }
 
 export interface FilterContext {
@@ -39,10 +41,11 @@ export class AIMarketFilter {
     private serpApiService: SerpAPIService | null = null;
     private tavilyService: TavilyService | null = null;
     private useNews: boolean = false;
+    private requestQueue: RequestQueue;
 
     constructor(useNews: boolean = false) {
         this.useNews = useNews;
-        
+
         // Инициализируем SerpAPI только если включено и ключ есть
         if (useNews && process.env.SERP_API_KEY) {
             try {
@@ -110,16 +113,21 @@ Your task is to analyze Polymarket prediction markets and determine whether they
   "opportunities": ["opportunity1", "opportunity2"]
 }
 
-**CRITICAL REQUIREMENT - estimatedProbability:**
-You MUST provide the "estimatedProbability" field with a numerical value between 0 and 1.
-This is ESSENTIAL for edge detection and trading decisions - without it, the analysis cannot be used.
+**CRITICAL REQUIREMENT - estimatedProbability (MANDATORY):**
+You MUST ALWAYS provide the "estimatedProbability" field with a numerical value between 0 and 1.
+This field is ABSOLUTELY REQUIRED - your response will be considered invalid without it.
 
-- If you're highly confident: provide your best estimate (e.g., 0.75 for 75%)
-- If you're uncertain: provide your mid-range estimate (e.g., 0.50 for 50%)
-- NEVER omit this field - it's required for every analysis
-- This value will be compared with the current market price to find trading opportunities (edge)
+RULES:
+1. ALWAYS include "estimatedProbability" in your JSON response
+2. The value MUST be a number between 0.0 and 1.0 (e.g., 0.75 = 75% chance)
+3. If you're highly confident: provide your best estimate (e.g., 0.75 for 75%)
+4. If you're uncertain: provide your mid-range estimate (e.g., 0.50 for 50%)
+5. NEVER omit this field - it's required for every analysis
+6. This value will be compared with the current market price to find trading opportunities (edge)
 
 Example: If market price is 60% (0.60) but you estimate 75% (0.75), that's a +15 percentage point edge.
+
+VALIDATION: Your response must include "estimatedProbability" or it will be rejected.
 
 **IMPORTANT:**
 - You do NOT need to provide "recommendedAction" - the system will automatically calculate it based on your estimatedProbability
@@ -128,17 +136,30 @@ Example: If market price is 60% (0.60) but you estimate 75% (0.75), that's a +15
 Be thorough, analytical, and honest about both risks and opportunities.`;
 
         this.aiService = new AIService(systemPrompt);
+
+        // Инициализируем очередь запросов для rate limiting
+        // maxConcurrent=3: максимум 3 одновременных запроса к OpenAI
+        // delayMs=150: задержка 150ms между запросами
+        this.requestQueue = new RequestQueue({
+            maxConcurrent: 3,
+            delayMs: 150,
+            maxRetries: 3,
+            retryDelayBase: 1000
+        });
     }
 
     /**
      * Анализирует один рынок и решает, стоит ли на нем торговать
      */
     async analyzeMarket(
-        market: Market, 
-        context?: FilterContext, 
+        market: Market,
+        context?: FilterContext,
         estimatedAttractiveness?: number,
         forceTavily?: boolean  // Принудительно использовать Tavily (для выбранных рынков)
     ): Promise<MarketAnalysis> {
+        // Собираем sources из всех источников
+        const sources: string[] = [];
+
         // Получаем новости если включено (как в Poly-Trader)
         let newsData = '';
         if (this.useNews && this.serpApiService) {
@@ -148,9 +169,15 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                     numResults: 5,
                     timeRange: 'past_24h'
                 });
-                
+
                 if (news.length > 0) {
                     newsData = this.formatNewsForPrompt(news);
+                    // Собираем ссылки из новостей
+                    news.forEach(article => {
+                        if (article.link) {
+                            sources.push(article.link);
+                        }
+                    });
                     console.log(`📰 Found ${news.length} recent news articles for analysis`);
                 }
             } catch (error) {
@@ -165,7 +192,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
         const shouldUseTavily = this.tavilyService && (
             forceTavily ||  // Принудительно использовать для выбранных рынков
             (estimatedAttractiveness !== undefined &&
-             estimatedAttractiveness >= AI_STRATEGY_CONFIG.TAVILY_ATTRACTIVENESS_THRESHOLD)
+                estimatedAttractiveness >= AI_STRATEGY_CONFIG.TAVILY_ATTRACTIVENESS_THRESHOLD)
         );
 
         if (shouldUseTavily) {
@@ -173,6 +200,12 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                 const tavilyResponse = await this.tavilyService!.deepSearch(market.question);
                 if (tavilyResponse.results.length > 0) {
                     tavilyData = this.tavilyService!.formatResultsForPrompt(tavilyResponse);
+                    // Собираем ссылки из Tavily результатов
+                    tavilyResponse.results.forEach(result => {
+                        if (result.url) {
+                            sources.push(result.url);
+                        }
+                    });
                     console.log(`🔬 Tavily: Deep analysis with ${tavilyResponse.results.length} sources`);
                 }
             } catch (error) {
@@ -183,11 +216,15 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
         const prompt = this.buildAnalysisPrompt(market, context, newsData, tavilyData);
 
         try {
-            const response = await this.aiService.generateResponse(prompt, {
-                parseJson: true,
-                maxTokens: 2000,
-                temperature: 0.3
-            });
+            // Используем очередь для rate limiting
+            const response = await this.requestQueue.add(
+                () => this.aiService.generateResponse(prompt, {
+                    parseJson: true,
+                    maxTokens: 2000,
+                    temperature: 0.3
+                }),
+                `market-${market.condition_id?.substring(0, 10) || 'unknown'}`
+            );
 
             // Парсим ответ
             let analysis: import('../../types/json').UnknownJSON;
@@ -198,7 +235,13 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             }
 
             // Валидация и нормализация
-            return this.normalizeAnalysis(analysis, market);
+            const normalized = this.normalizeAnalysis(analysis, market);
+
+            // Добавляем sources в результат
+            return {
+                ...normalized,
+                sources: sources.length > 0 ? sources : undefined
+            };
 
         } catch (error) {
             console.error('❌ AI market analysis failed:', error);
@@ -210,7 +253,8 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                 attractiveness: 0.0,
                 riskLevel: 'high',
                 riskFactors: ['AI analysis unavailable'],
-                opportunities: []
+                opportunities: [],
+                sources: sources.length > 0 ? sources : undefined
             };
         }
     }
@@ -228,31 +272,31 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
         }
 
         console.log(`   🔄 Начало AI анализа ${markets.length} рынков...`);
+        console.log(`   📊 Rate limiting: maxConcurrent=${this.requestQueue['maxConcurrent']}, delay=${this.requestQueue['delayMs']}ms`);
 
         // Сначала делаем быструю оценку attractiveness на основе базовых данных
         console.log(`   📊 Этап 1: Предварительная оценка attractiveness...`);
-        const preliminaryAnalysis = await Promise.all(
-            markets.map(async (market) => {
-                // Простая оценка без полного AI анализа
-                const yesToken = market.tokens.find(t => t.outcome === 'Yes');
-                const baseAttractiveness = yesToken ? yesToken.price : 0.5;
-                return { market, estimatedAttractiveness: baseAttractiveness };
-            })
-        );
+        const preliminaryAnalysis = markets.map((market) => {
+            // Простая оценка без полного AI анализа
+            const yesToken = market.tokens.find(t => t.outcome === 'Yes');
+            const baseAttractiveness = yesToken ? yesToken.price : 0.5;
+            return { market, estimatedAttractiveness: baseAttractiveness };
+        });
         console.log(`      ✅ Предварительная оценка завершена`);
 
-        console.log(`   🤖 Этап 2: Полный AI анализ каждого рынка...`);
+        console.log(`   🤖 Этап 2: Полный AI анализ каждого рынка (через очередь запросов)...`);
         let analyzedCount = 0;
         const results = await Promise.all(
             preliminaryAnalysis.map(async ({ market, estimatedAttractiveness }) => {
                 analyzedCount++;
                 if (analyzedCount % 5 === 0) {
-                    console.log(`      ⏳ Анализ: ${analyzedCount}/${markets.length} рынков...`);
+                    const stats = this.requestQueue.getStats();
+                    console.log(`      ⏳ Анализ: ${analyzedCount}/${markets.length} рынков... (queue: ${stats.queueLength}, running: ${stats.running}, rateLimitHits: ${stats.rateLimitHits})`);
                 }
-                
+
                 try {
                     const analysis = await this.analyzeMarket(market, context, estimatedAttractiveness);
-                    
+
                     if (analyzedCount <= 3 || analysis.shouldTrade) {
                         // Логируем первые 3 или те, что прошли фильтр
                         const yesToken = market.tokens.find(t => t.outcome === 'Yes');
@@ -266,7 +310,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                         console.log(`         Risk: ${analysis.riskLevel.toUpperCase()}`);
                         console.log(`         Should Trade: ${analysis.shouldTrade ? '✅' : '❌'}`);
                     }
-                    
+
                     return { market, analysis };
                 } catch (error) {
                     console.error(`      ❌ Ошибка анализа рынка ${market.question.substring(0, 30)}:`, error);
@@ -286,10 +330,14 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                 }
             })
         );
+        const finalStats = this.requestQueue.getStats();
         console.log(`      ✅ AI анализ завершен для всех ${markets.length} рынков`);
+        if (finalStats.rateLimitHits > 0) {
+            console.log(`      ⚠️  Rate limit hits: ${finalStats.rateLimitHits} (все обработаны через retry)`);
+        }
 
         console.log(`   🔍 Этап 3: Фильтрация результатов...`);
-        
+
         // Фильтруем по shouldTrade
         const beforeShouldTrade = results.length;
         const tradable = results.filter(r => r.analysis.shouldTrade === true);
@@ -312,7 +360,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
             const beforeRisk = filtered.length;
             const riskLevels = { low: 0, medium: 1, high: 2 };
             const maxRiskLevel = riskLevels[context.maxRisk];
-            filtered = filtered.filter(r => 
+            filtered = filtered.filter(r =>
                 riskLevels[r.analysis.riskLevel] <= maxRiskLevel
             );
             const afterRisk = filtered.length;
@@ -350,8 +398,8 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
 
         // Этап 4: Повторный анализ выбранных рынков с Tavily (если не использовался ранее)
         // Для выбранных рынков используем оба источника (SerpAPI + Tavily) для более глубокого анализа
-        if (filtered.length > 0 && 
-            this.tavilyService && 
+        if (filtered.length > 0 &&
+            this.tavilyService &&
             AI_STRATEGY_CONFIG.USE_TAVILY_FOR_SELECTED_MARKETS) {
             const needsTavily = filtered.filter(item => {
                 // Используем Tavily если не использовали ранее (attractiveness < 75%)
@@ -360,7 +408,7 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
 
             if (needsTavily.length > 0) {
                 console.log(`\n   🔬 Этап 4: Глубокий анализ с Tavily для ${needsTavily.length} выбранных рынков...`);
-                
+
                 const enrichedResults = await Promise.all(
                     filtered.map(async (item) => {
                         // Если Tavily еще не использовался для этого рынка - используем сейчас
@@ -369,12 +417,12 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                                 console.log(`      🔍 Tavily deep analysis for: ${item.market.question.substring(0, 50)}...`);
                                 // Повторный анализ с Tavily
                                 const enrichedAnalysis = await this.analyzeMarket(
-                                    item.market, 
-                                    context, 
+                                    item.market,
+                                    context,
                                     item.analysis.attractiveness,
                                     true  // forceTavily = true
                                 );
-                                
+
                                 // Объединяем результаты: берем лучшее из обоих анализов
                                 return {
                                     market: item.market,
@@ -387,7 +435,8 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                                     }
                                 };
                             } catch (error) {
-                                console.warn(`      ⚠️  Tavily analysis failed, keeping original: ${error}`);
+                                const errorMsg = error instanceof Error ? error.message : String(error);
+                                console.warn(`      ⚠️  Tavily analysis failed, keeping original: ${errorMsg}`);
                                 return item; // Оставляем оригинальный анализ
                             }
                         }
@@ -531,11 +580,11 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
      */
     private normalizeAnalysis(data: unknown, market: Market): MarketAnalysis {
         const typed = data as import('../../types/ai-response').AIMarketAnalysisJSON;
-        
-        const confidenceValue = typeof typed.confidence === 'string' 
-            ? parseFloat(typed.confidence) 
+
+        const confidenceValue = typeof typed.confidence === 'string'
+            ? parseFloat(typed.confidence)
             : (typeof typed.confidence === 'number' ? typed.confidence : undefined);
-        const confidence = confidenceValue !== undefined 
+        const confidence = confidenceValue !== undefined
             ? Math.max(0, Math.min(1, confidenceValue || 0.5))
             : 0.5;
 
@@ -570,11 +619,41 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
         } else {
             // КРИТИЧЕСКАЯ ОШИБКА: estimatedProbability отсутствует!
             console.error('❌ CRITICAL: AI did not provide estimatedProbability field!');
-            console.error('   This is required for edge detection. Setting to undefined - edge detection will be skipped.');
+            console.error('   This is required for edge detection.');
             console.error('   AI response keys:', Object.keys(typed));
+            console.error('   Market:', market.question?.substring(0, 50));
 
-            // Fallback: undefined (edge detection не сработает, но анализ продолжится)
-            estimatedProbability = undefined;
+            // Fallback: используем текущую рыночную цену как оценку
+            const yesToken = market.tokens.find(t => t.outcome === 'Yes');
+            const marketPrice = yesToken?.price ?? 0.5;
+
+            console.warn(`   ⚠️  FALLBACK: Using market price (${(marketPrice * 100).toFixed(1)}%) as estimatedProbability`);
+            console.warn('   This means no edge will be detected - market is assumed to be efficient.');
+
+            estimatedProbability = marketPrice; // Используем рыночную цену как fallback
+        }
+
+        // Валидация логики: проверяем согласованность recommendedAction и estimatedProbability
+        let recommendedAction = this.calculateRecommendedAction(estimatedProbability, market);
+
+        // Валидация: если recommendedAction противоречит estimatedProbability, устанавливаем AVOID
+        if (estimatedProbability !== undefined) {
+            const yesToken = market.tokens.find(t => t.outcome === 'Yes');
+            const marketPrice = yesToken?.price ?? 0.5;
+
+            // Проверка 1: BUY_YES должен означать, что estimatedProbability > marketPrice
+            if (recommendedAction === 'BUY_YES' && estimatedProbability <= marketPrice) {
+                console.warn(`⚠️  VALIDATION ERROR: BUY_YES recommended but estimatedProbability (${(estimatedProbability * 100).toFixed(1)}%) <= marketPrice (${(marketPrice * 100).toFixed(1)}%)`);
+                console.warn(`   Setting recommendedAction to AVOID due to contradiction`);
+                recommendedAction = 'AVOID';
+            }
+
+            // Проверка 2: BUY_NO должен означать, что estimatedProbability < marketPrice
+            if (recommendedAction === 'BUY_NO' && estimatedProbability >= marketPrice) {
+                console.warn(`⚠️  VALIDATION ERROR: BUY_NO recommended but estimatedProbability (${(estimatedProbability * 100).toFixed(1)}%) >= marketPrice (${(marketPrice * 100).toFixed(1)}%)`);
+                console.warn(`   Setting recommendedAction to AVOID due to contradiction`);
+                recommendedAction = 'AVOID';
+            }
         }
 
         const analysis = {
@@ -589,14 +668,14 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
                 ? typed.riskLevel as 'low' | 'medium' | 'high'
                 : 'medium',
             riskFactors: Array.isArray(typed.riskFactors)
-                ? typed.riskFactors as string[]
+                ? typed.riskFactors
                 : (typed.riskFactors ? [String(typed.riskFactors)] : []),
             opportunities: Array.isArray(typed.opportunities)
-                ? typed.opportunities as string[]
+                ? typed.opportunities
                 : (typed.opportunities ? [String(typed.opportunities)] : []),
             // recommendedAction теперь рассчитывается в сервисном слое (AIStrategy)
             // на основе сравнения estimatedProbability с marketPrice
-            recommendedAction: this.calculateRecommendedAction(estimatedProbability, market)
+            recommendedAction
         };
 
         return analysis;
@@ -655,13 +734,13 @@ Be thorough, analytical, and honest about both risks and opportunities.`;
 
         // Попытка извлечь ключевые значения
         const shouldTradeMatch = text.match(/shouldTrade["\s]*:[\s]*(true|false)/i);
-        const shouldTrade = shouldTradeMatch && shouldTradeMatch[1] 
-            ? shouldTradeMatch[1].toLowerCase() === 'true' 
+        const shouldTrade = shouldTradeMatch && shouldTradeMatch[1]
+            ? shouldTradeMatch[1].toLowerCase() === 'true'
             : false;
 
         const confidenceMatch = text.match(/confidence["\s]*:[\s]*([0-9.]+)/i);
-        const confidence = confidenceMatch && confidenceMatch[1] 
-            ? parseFloat(confidenceMatch[1]) 
+        const confidence = confidenceMatch && confidenceMatch[1]
+            ? parseFloat(confidenceMatch[1])
             : 0.5;
 
         return {

@@ -251,7 +251,7 @@ ts-node src/test/test-ai-filter.ts
 ## 📝 Дополнительная информация
 
 - **SerpAPI**: Документация на [serpapi.com](https://serpapi.com)
-- **Tavily**: Документация на [tavily.com](https://tavily.com) - [tavily-integration.md](tavily-integration.md)
+- **Tavily**: Документация на [tavily.com](https://tavily.com)
 - **Подход Poly-Trader**: Вдохновение для AI анализа рынков
 - **OpenAI API**: Документация на [platform.openai.com](https://platform.openai.com)
 - **Gemini API**: Документация на [ai.google.dev](https://ai.google.dev)

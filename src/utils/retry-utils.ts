@@ -43,7 +43,7 @@ export async function withRetry<T>(
             // Exponential backoff: 1s, 2s, 4s (но не больше maxDelay)
             const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
             
-            console.log(`⏳ Retry attempt ${attempt}/${maxRetries} in ${delay}ms...`);
+            console.warn(`⏳ Retry attempt ${attempt}/${maxRetries} in ${delay}ms...`);
             await sleep(delay);
         }
     }

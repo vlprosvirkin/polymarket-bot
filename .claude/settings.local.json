@@ -33,7 +33,22 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(grep:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(timeout 10 npm run:*)",
+      "Bash(npm run test:market-filter:*)",
+      "Bash(npm run test:ai-probability:*)",
+      "Bash(timeout 120 npm run start:ai:*)",
+      "Bash(npm run start:ai:*)",
+      "Bash(find:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pkill:*)",
+      "Bash(npm run test:ai-prompt-fix:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(npm run list-wallets:*)",
+      "Bash(npm run db:migrate:*)",
+      "Bash(PGPASSWORD='Vopros+2004' psql -h 34.57.59.17 -U postgres -d postgres -c \"CREATE DATABASE polymarketdb;\")",
+      "Bash(PGPASSWORD='Vopros+2004' psql -h 34.57.59.17 -U postgres -d polymarketdb -c \"\\dt\")",
+      "Bash(npm run lint:*)"
     ],
     "deny": [],
     "ask": []

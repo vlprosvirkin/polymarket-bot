@@ -7,6 +7,8 @@ import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
 import { ClobClient } from "@polymarket/clob-client";
 import { ApiServer } from "./api/server";
+import { TelegramAdapter } from "./adapters/telegram.adapter";
+import { TelegramBot } from "./services/TelegramBot";
 
 dotenvConfig({ path: resolve(__dirname, "../.env") });
 
@@ -43,8 +45,24 @@ async function startApiServer() {
 
     console.log("✅ CLOB Client инициализирован");
 
+    // Инициализация Telegram (опционально)
+    let telegramBot: TelegramBot | undefined;
+    if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+        try {
+            console.log("\n📱 Инициализация Telegram...");
+            const telegramAdapter = new TelegramAdapter();
+            await telegramAdapter.connect();
+            telegramBot = new TelegramBot(telegramAdapter, client);
+            console.log("✅ Telegram Bot инициализирован");
+        } catch (error) {
+            console.warn("⚠️  Telegram не настроен или ошибка подключения:", error);
+        }
+    } else {
+        console.log("\n⚠️  Telegram не настроен (TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID отсутствуют)");
+    }
+
     // Запуск API сервера
-    const apiServer = new ApiServer(client, port);
+    const apiServer = new ApiServer(client, port, telegramBot);
     apiServer.start();
 }
 

@@ -1,0 +1,46 @@
+# Зависимости
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Сборка
+dist
+*.tsbuildinfo
+
+# Тесты
+coverage
+.nyc_output
+
+# Логи
+*.log
+logs
+
+# Окружение
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Документация
+docs
+*.md
+!README.md
+
+# Другие
+.DS_Store
+Thumbs.db
+analysis-outputs
+old
+clob-client
+

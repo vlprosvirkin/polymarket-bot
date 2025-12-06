@@ -34,12 +34,23 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+image.tar.gz
 
 # Private keys and credentials
 *.key
 *.pem
 wallet.json
 keystore/
+key.json
+*-key.json
+gcp-key.json
+github-actions-key.json
+
+# GCP temporary files
+image.tar.gz
+*.tar.gz
+gcp-*.json
+service-account-*.json
 
 # Test coverage
 coverage/

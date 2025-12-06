@@ -6,7 +6,7 @@
 import { ethers } from "ethers";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { ClobClient, Side, OrderType, TickSize } from "@polymarket/clob-client";
 import { getErrorMessage } from "./types/errors";
 import { HighConfidenceStrategy } from "./strategies";
 import {
@@ -16,8 +16,23 @@ import {
     OrderSide,
     TradeSignal
 } from "./types";
+import { TelegramAdapter } from "./adapters/telegram.adapter";
+import { TelegramBot } from "./services/TelegramBot";
 
 dotenvConfig({ path: resolve(__dirname, "../.env") });
+
+// Типизация для ответа getSamplingMarkets от CLOB API
+interface SamplingMarketsResponse {
+    data: Market[];
+    next_cursor?: string;
+}
+
+// Типизация для ответа createAndPostOrder от CLOB API
+interface OrderResponse {
+    success: boolean;
+    orderID?: string;
+    errorMsg?: string;
+}
 
 // Конфигурация High Confidence стратегии
 const STRATEGY_CONFIG: StrategyConfig = {
@@ -46,6 +61,7 @@ class HighConfidenceBot {
     private strategy: HighConfidenceStrategy;
     private isRunning: boolean = false;
     private positions: Map<string, Position> = new Map();
+    private telegramBot?: TelegramBot;
 
     constructor(strategy: HighConfidenceStrategy) {
         if (!process.env.PK || !process.env.FUNDER_ADDRESS) {
@@ -83,20 +99,33 @@ class HighConfidenceBot {
             process.env.FUNDER_ADDRESS
         );
 
+        // Инициализация Telegram (опционально)
+        if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+            try {
+                console.log("📱 Инициализация Telegram...");
+                const telegramAdapter = new TelegramAdapter();
+                await telegramAdapter.connect();
+                this.telegramBot = new TelegramBot(telegramAdapter, this.client);
+                console.log("✅ Telegram Bot подключен\n");
+            } catch {
+                console.warn("⚠️  Telegram не настроен или ошибка подключения");
+            }
+        }
+
         console.log("✅ Инициализирован\n");
     }
 
     async getActiveMarkets(): Promise<Market[]> {
-        const response = await this.client.getSamplingMarkets();
-        const markets = response.data || [];
+        const response = await this.client.getSamplingMarkets() as SamplingMarketsResponse;
+        const markets: Market[] = response.data || [];
         return this.strategy.filterMarkets(markets);
     }
 
     async getTokenPrice(tokenId: string): Promise<number | null> {
         try {
-            const midpoint = await this.client.getMidpoint(tokenId);
+            const midpoint = await this.client.getMidpoint(tokenId) as string;
             return parseFloat(midpoint);
-        } catch (error) {
+        } catch {
             return null;
         }
     }
@@ -153,20 +182,41 @@ class HighConfidenceBot {
                     size: signal.size,
                 },
                 {
-                    tickSize: signal.market.minimum_tick_size.toString() as any,
+                    tickSize: signal.market.minimum_tick_size.toString() as TickSize,
                     negRisk: signal.market.neg_risk
                 },
                 OrderType.GTC
-            );
+            ) as OrderResponse;
 
-            if (order.success) {
+            if (order.success && order.orderID) {
                 console.log(`   ✅ Ордер размещен: ${order.orderID}`);
 
                 if (signal.side === OrderSide.BUY) {
                     this.updatePosition(signal.tokenId, signal.market.question, signal.size, signal.price);
                 }
+
+                // Отправляем нотификацию в Telegram
+                if (this.telegramBot) {
+                    const tokenOutcome = signal.market.tokens.find(t => t.token_id === signal.tokenId)?.outcome || 'Unknown';
+                    await this.telegramBot.notifyOrderPlaced(
+                        order.orderID,
+                        signal.side,
+                        tokenOutcome,
+                        signal.price,
+                        signal.size,
+                        signal.market.question
+                    ).catch(err => console.warn('Failed to send Telegram notification:', getErrorMessage(err)));
+                }
             } else {
                 console.log(`   ❌ Ошибка: ${order.errorMsg}`);
+                
+                // Отправляем нотификацию об ошибке в Telegram
+                if (this.telegramBot) {
+                    await this.telegramBot.notifyOrderError(
+                        signal.market.question,
+                        order.errorMsg || 'Unknown error'
+                    ).catch(err => console.warn('Failed to send Telegram notification:', getErrorMessage(err)));
+                }
             }
 
         } catch (error: unknown) {
@@ -196,6 +246,15 @@ class HighConfidenceBot {
 
             console.log(`   ✅ Позиция закрыта`);
             this.positions.delete(position.tokenId);
+
+            // Отправляем нотификацию о закрытии позиции в Telegram
+            if (this.telegramBot) {
+                await this.telegramBot.notifyPositionClosed(
+                    market.question,
+                    pnl,
+                    reason
+                ).catch(err => console.warn('Failed to send Telegram notification:', getErrorMessage(err)));
+            }
 
         } catch (error: unknown) {
             console.error(`   ❌ Ошибка закрытия:`, getErrorMessage(error));
@@ -278,17 +337,9 @@ async function main() {
     try {
         await bot.initialize();
 
-        process.on('SIGINT', () => {
-            console.log('\n\n⚠️  Получен SIGINT (Ctrl+C)');
-            bot.stop();
-            setTimeout(() => process.exit(0), 1000);
-        });
-
-        process.on('SIGTERM', () => {
-            console.log('\n\n⚠️  Получен SIGTERM');
-            bot.stop();
-            setTimeout(() => process.exit(0), 1000);
-        });
+        // Обработка graceful shutdown
+        const { setupGracefulShutdown } = await import('./utils/graceful-shutdown');
+        setupGracefulShutdown(bot);
 
         await bot.run();
 
@@ -302,7 +353,7 @@ async function main() {
 }
 
 if (require.main === module) {
-    main();
+    void main();
 }
 
 export { HighConfidenceBot };

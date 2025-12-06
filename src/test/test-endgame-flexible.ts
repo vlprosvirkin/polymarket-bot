@@ -56,19 +56,19 @@ class FlexibleEndgameTest {
     }
 
     async initialize(): Promise<void> {
-        console.log("🎲 FLEXIBLE ENDGAME TEST (мягкие фильтры)\n");
-        console.log("⚠️  DEMO MODE: Ордера НЕ размещаются\n");
+        console.warn("🎲 FLEXIBLE ENDGAME TEST (мягкие фильтры)\n");
+        console.warn("⚠️  DEMO MODE: Ордера НЕ размещаются\n");
 
         const address = await this.wallet.getAddress();
-        console.log(`👤 Адрес: ${address}`);
-        console.log(`📋 Параметры:`);
-        console.log(`   - Вероятность: 80-99%`);
-        console.log(`   - До разрешения: БЕЗ ОГРАНИЧЕНИЯ`);
-        console.log(`   - Min объем: БЕЗ ФИЛЬТРА`);
-        console.log(`   - NegRisk: ВКЛЮЧЕНЫ`);
-        console.log(`   - Размер сделки: $100\n`);
+        console.warn(`👤 Адрес: ${address}`);
+        console.warn(`📋 Параметры:`);
+        console.warn(`   - Вероятность: 80-99%`);
+        console.warn(`   - До разрешения: БЕЗ ОГРАНИЧЕНИЯ`);
+        console.warn(`   - Min объем: БЕЗ ФИЛЬТРА`);
+        console.warn(`   - NegRisk: ВКЛЮЧЕНЫ`);
+        console.warn(`   - Размер сделки: $100\n`);
 
-        console.log("🔑 Получение API ключей...");
+        console.warn("🔑 Получение API ключей...");
         const creds = await new ClobClient(
             BOT_CONFIG.host,
             BOT_CONFIG.chainId,
@@ -84,7 +84,7 @@ class FlexibleEndgameTest {
             process.env.FUNDER_ADDRESS
         );
 
-        console.log("✅ Инициализирован\n");
+        console.warn("✅ Инициализирован\n");
     }
 
     async getTokenPrice(tokenId: string): Promise<number | null> {
@@ -97,12 +97,12 @@ class FlexibleEndgameTest {
     }
 
     async testStrategy(): Promise<void> {
-        console.log("=".repeat(70));
-        console.log("📊 АНАЛИЗ РЫНКОВ");
-        console.log("=".repeat(70));
+        console.warn("=".repeat(70));
+        console.warn("📊 АНАЛИЗ РЫНКОВ");
+        console.warn("=".repeat(70));
 
         // Получаем рынки с повторными попытками
-        console.log("\n1️⃣ Получение рынков (может занять время)...");
+        console.warn("\n1️⃣ Получение рынков (может занять время)...");
 
         let allMarkets: Market[] = [];
         let attempts = 0;
@@ -112,28 +112,28 @@ class FlexibleEndgameTest {
             try {
                 const response = await this.client.getSamplingMarkets();
                 allMarkets = response.data || [];
-                console.log(`   Получено рынков: ${allMarkets.length}`);
+                console.warn(`   Получено рынков: ${allMarkets.length}`);
                 break;
             } catch (error: any) {
                 attempts++;
-                console.log(`   ⚠️  Попытка ${attempts}/${maxAttempts} не удалась: ${error.message}`);
+                console.warn(`   ⚠️  Попытка ${attempts}/${maxAttempts} не удалась: ${error.message}`);
                 if (attempts < maxAttempts) {
-                    console.log(`   Ожидание 5 секунд...`);
+                    console.warn(`   Ожидание 5 секунд...`);
                     await new Promise(resolve => setTimeout(resolve, 5000));
                 }
             }
         }
 
         if (allMarkets.length === 0) {
-            console.log("\n❌ Не удалось получить рынки");
-            console.log("   Проверь:");
-            console.log("   - VPN включен?");
-            console.log("   - curl https://clob.polymarket.com/sampling-markets?limit=1");
+            console.warn("\n❌ Не удалось получить рынки");
+            console.warn("   Проверь:");
+            console.warn("   - VPN включен?");
+            console.warn("   - curl https://clob.polymarket.com/sampling-markets?limit=1");
             return;
         }
 
         // Анализ всех рынков
-        console.log("\n2️⃣ Анализ распределения вероятностей...");
+        console.warn("\n2️⃣ Анализ распределения вероятностей...");
 
         const distribution = {
             '0-50%': 0,
@@ -157,15 +157,15 @@ class FlexibleEndgameTest {
             else distribution['99-100%']++;
         });
 
-        console.log(`   Всего активных рынков: ${allMarkets.length}`);
+        console.warn(`   Всего активных рынков: ${allMarkets.length}`);
         Object.entries(distribution).forEach(([range, count]) => {
             const pct = ((count / allMarkets.length) * 100).toFixed(1);
             const bar = '█'.repeat(Math.floor(count / allMarkets.length * 50));
-            console.log(`   ${range.padEnd(10)} ${count.toString().padStart(4)} (${pct.padStart(5)}%) ${bar}`);
+            console.warn(`   ${range.padEnd(10)} ${count.toString().padStart(4)} (${pct.padStart(5)}%) ${bar}`);
         });
 
         // Анализ причин фильтрации
-        console.log("\n3️⃣ Детальный анализ фильтров...");
+        console.warn("\n3️⃣ Детальный анализ фильтров...");
 
         const highProbMarkets = allMarkets.filter(m => {
             const yesToken = m.tokens?.find((t: any) => t.outcome === "Yes");
@@ -173,37 +173,37 @@ class FlexibleEndgameTest {
             return yesToken.price >= 0.80 && yesToken.price <= 0.99;
         });
 
-        console.log(`   Рынков с вероятностью 80-99%: ${highProbMarkets.length}`);
+        console.warn(`   Рынков с вероятностью 80-99%: ${highProbMarkets.length}`);
 
         const withDate = highProbMarkets.filter(m => m.end_date_iso);
         const withoutDate = highProbMarkets.filter(m => !m.end_date_iso);
-        console.log(`   - С датой разрешения: ${withDate.length}`);
-        console.log(`   - БЕЗ даты разрешения: ${withoutDate.length}`);
+        console.warn(`   - С датой разрешения: ${withDate.length}`);
+        console.warn(`   - БЕЗ даты разрешения: ${withoutDate.length}`);
 
         const withVolume = withDate.filter(m => parseFloat(m.volume || "0") >= 0);
-        console.log(`   - С датой И любым объемом: ${withVolume.length}`);
+        console.warn(`   - С датой И любым объемом: ${withVolume.length}`);
 
         const withNegRisk = withVolume.filter(m => m.neg_risk);
         const withoutNegRisk = withVolume.filter(m => !m.neg_risk);
-        console.log(`   - NegRisk рынки: ${withNegRisk.length}`);
-        console.log(`   - Обычные рынки: ${withoutNegRisk.length}`);
+        console.warn(`   - NegRisk рынки: ${withNegRisk.length}`);
+        console.warn(`   - Обычные рынки: ${withoutNegRisk.length}`);
 
         // Фильтрация через стратегию
-        console.log("\n4️⃣ Применение фильтров стратегии...");
+        console.warn("\n4️⃣ Применение фильтров стратегии...");
         const filtered = this.strategy.filterMarkets(allMarkets);
-        console.log(`   Подходящих рынков: ${filtered.length}`);
+        console.warn(`   Подходящих рынков: ${filtered.length}`);
 
         if (filtered.length === 0) {
-            console.log("\n💡 Рекомендации:");
-            console.log("   - В диапазоне 90-95%: " + distribution['90-95%'] + " рынков");
-            console.log("   - В диапазоне 95-99%: " + distribution['95-99%'] + " рынков");
-            console.log("   - Большинство рынков не имеют даты разрешения (end_date_iso)");
-            console.log("   - Попробуй снизить minVolume или убрать фильтр excludeNegRisk");
+            console.warn("\n💡 Рекомендации:");
+            console.warn("   - В диапазоне 90-95%: " + distribution['90-95%'] + " рынков");
+            console.warn("   - В диапазоне 95-99%: " + distribution['95-99%'] + " рынков");
+            console.warn("   - Большинство рынков не имеют даты разрешения (end_date_iso)");
+            console.warn("   - Попробуй снизить minVolume или убрать фильтр excludeNegRisk");
             return;
         }
 
         // Показываем топ возможности
-        console.log(`\n5️⃣ Топ ${Math.min(filtered.length, 5)} возможностей:\n`);
+        console.warn(`\n5️⃣ Топ ${Math.min(filtered.length, 5)} возможностей:\n`);
 
         for (let i = 0; i < Math.min(filtered.length, 5); i++) {
             const market = filtered[i];
@@ -211,15 +211,15 @@ class FlexibleEndgameTest {
             await this.analyzeMarket(market, i + 1);
         }
 
-        console.log("\n" + "=".repeat(70));
-        console.log("✅ АНАЛИЗ ЗАВЕРШЕН");
-        console.log("=".repeat(70));
+        console.warn("\n" + "=".repeat(70));
+        console.warn("✅ АНАЛИЗ ЗАВЕРШЕН");
+        console.warn("=".repeat(70));
     }
 
     async analyzeMarket(market: Market, index: number): Promise<void> {
-        console.log(`\n${"─".repeat(70)}`);
-        console.log(`${index}. ${market.question}`);
-        console.log(`${"─".repeat(70)}`);
+        console.warn(`\n${"─".repeat(70)}`);
+        console.warn(`${index}. ${market.question}`);
+        console.warn(`${"─".repeat(70)}`);
 
         const yesToken = market.tokens.find(t => t.outcome === "Yes");
         const noToken = market.tokens.find(t => t.outcome === "No");
@@ -239,17 +239,17 @@ class FlexibleEndgameTest {
         // Анализ сделки
         const analysis = this.strategy.analyzeTradeSetup(market, yesPrice);
 
-        console.log(`\n💰 Цены:`);
-        console.log(`   YES: ${(yesPrice * 100).toFixed(2)}%`);
-        console.log(`   NO:  ${(noPrice * 100).toFixed(2)}%`);
+        console.warn(`\n💰 Цены:`);
+        console.warn(`   YES: ${(yesPrice * 100).toFixed(2)}%`);
+        console.warn(`   NO:  ${(noPrice * 100).toFixed(2)}%`);
 
-        console.log(`\n📊 Рынок:`);
-        console.log(`   Объем: $${parseFloat(market.volume || "0").toLocaleString()}`);
+        console.warn(`\n📊 Рынок:`);
+        console.warn(`   Объем: $${parseFloat(market.volume || "0").toLocaleString()}`);
         if (daysUntilEnd !== null) {
-            console.log(`   Разрешение: через ${daysUntilEnd.toFixed(1)} дней`);
+            console.warn(`   Разрешение: через ${daysUntilEnd.toFixed(1)} дней`);
         }
 
-        console.log(`\n${analysis.analysis}`);
+        console.warn(`\n${analysis.analysis}`);
 
         // Расчет APY
         if (analysis.valid && daysUntilEnd && daysUntilEnd > 0) {
@@ -258,16 +258,16 @@ class FlexibleEndgameTest {
             const roi = (profit / totalCost) * 100;
             const apy = (roi / daysUntilEnd) * 365;
 
-            console.log(`\n📈 Годовая доходность:`);
-            console.log(`   ROI: ${roi.toFixed(2)}% за ${daysUntilEnd.toFixed(1)} дней`);
-            console.log(`   APY: ~${apy.toFixed(0)}% годовых`);
+            console.warn(`\n📈 Годовая доходность:`);
+            console.warn(`   ROI: ${roi.toFixed(2)}% за ${daysUntilEnd.toFixed(1)} дней`);
+            console.warn(`   APY: ~${apy.toFixed(0)}% годовых`);
 
             if (apy > 100) {
-                console.log(`   🔥 Высокая доходность!`);
+                console.warn(`   🔥 Высокая доходность!`);
             } else if (apy > 50) {
-                console.log(`   ✅ Хорошая доходность`);
+                console.warn(`   ✅ Хорошая доходность`);
             } else {
-                console.log(`   ⚠️  Низкая доходность`);
+                console.warn(`   ⚠️  Низкая доходность`);
             }
         }
     }
